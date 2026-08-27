@@ -8,10 +8,10 @@ const initialServices = [
   { title: 'Equipment Foundation Coating', img: '/images/equipment foundation coating.png', price: 279.99 },
   { title: 'Welding and Fabrication', img: '/images/wf.jpg', price: 449.99 },
   { title: 'Cooler Tube Replacement', img: '/images/ctr.jpg', price: 379.99 },
-  { title: 'Vacuum Insulated Piping Installation (VIP)', img: '/images/vip.jpg', price: 599.99 },
+  { title: 'Vacuum Insulated Piping Installation (VIP)', img: '/images/VIP.jpg', price: 599.99 },
   { title: 'Liquid Nitrogen Piping', img: '/images/lnp.jpg', price: 499.99 },
   { title: 'Crack Detection Test', img: '/images/cdt.jpg', price: 329.99 },
-  { title: 'Repainting', img: '/images/repainting.jpg', price: 249.99 },
+  { title: 'Repainting', img: '/images/Repainting.jpg', price: 249.99 },
   { title: 'Professional Mechanical Engineer Consultancy', img: '/images/pmec.jpg', price: 799.99 }
 ];
 

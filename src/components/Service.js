@@ -28,7 +28,7 @@ const initialServicesData = [
   },
   {
     title: "Vacuum Insulated Piping Installation (VIP)",
-    img: "/images/vip.jpg",
+    img: "/images/VIP.jpg",
     desc: "Vacuum insulated piping (VIP) installation involves setting up specialized piping systems designed to reduce heat transfer using a vacuum layer. These systems are commonly used for transporting cryogenic liquids while maintaining extremely low temperatures."
   },
   {
@@ -43,7 +43,7 @@ const initialServicesData = [
   },
   {
     title: "Repainting",
-    img: "/images/repainting.jpg",
+    img: "/images/Repainting.jpg",
     desc: "Repainting involves applying protective and decorative coatings to equipment, structures, or pipelines. It helps prevent corrosion, improve appearance, and extend the service life of industrial assets."
   },
   {
