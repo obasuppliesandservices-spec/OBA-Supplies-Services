@@ -10,6 +10,7 @@ import useStickyState from '../useStickyState';
 import { QRCodeSVG } from 'qrcode.react';
 import TruckManagement from './TruckManagement';
 import ReportsAnalytics from './ReportsAnalytics';
+import { getVisibleJobOrderEvents } from '../deliveryUtils';
 
 const ScannerPlugin = ({ onScanSuccess, onScanFailure }) => {
   useEffect(() => {
@@ -368,6 +369,41 @@ export const getTripPrefillData = ({ selectedTruck = '', assignedManpower = [], 
   };
 };
 
+export const getAvailableDriverPahinanteOptions = (employees = [], trips = [], arrivedTripIds = []) => {
+  const presentDP = (employees || []).filter(emp => emp && emp.name && emp.status === 'Present' && emp.department === 'Driver/Pahinante');
+  const allPresentDP = presentDP.length > 0 ? presentDP : (employees || []).filter(emp => emp && emp.name && emp.status === 'Present');
+  const arrivedSet = new Set((arrivedTripIds || []).map(id => String(id)));
+  const reservedNames = new Set();
+
+  (trips || []).forEach((trip) => {
+    if (!trip || arrivedSet.has(String(trip.id))) return;
+    if (trip.driver) reservedNames.add(trip.driver);
+    if (trip.pahintate) reservedNames.add(trip.pahintate);
+  });
+
+  const availableOptions = allPresentDP.filter(emp => !reservedNames.has(emp.name));
+
+  return {
+    driverOptions: availableOptions,
+    pahintateOptions: availableOptions,
+    reservedNames: Array.from(reservedNames)
+  };
+};
+
+export const getAutoSelectedDriverPahinante = (employees = [], trips = [], arrivedTripIds = [], currentDriver = '', currentPahinante = '') => {
+  const { driverOptions, pahintateOptions } = getAvailableDriverPahinanteOptions(employees, trips, arrivedTripIds);
+  const driver = currentDriver && driverOptions.some(emp => emp.name === currentDriver)
+    ? currentDriver
+    : (driverOptions[0]?.name || '');
+
+  const fallbackPahinante = pahintateOptions.find(emp => emp.name !== driver)?.name || driver || '';
+  const pahintate = currentPahinante && pahintateOptions.some(emp => emp.name === currentPahinante)
+    ? currentPahinante
+    : fallbackPahinante;
+
+  return { driver: driver || '', pahintate: (pahintate && pahintate !== driver) || !driver ? (pahintate || '') : '' };
+};
+
 const getAssistantName = (trip = {}) => trip.assistant || trip.pahintate || '';
 
 export const getTruckArrivalTrips = (trips = [], arrivedTripIds = []) => {
@@ -413,12 +449,33 @@ export const getAutoAssignedManpower = (employees = [], requiredCount = 0) => {
   return presentEmployees.slice(0, Math.max(0, requiredCount || 0));
 };
 
-export default function Logistics({ user, onLogout, onNavigate, events, onMarkDone, onStartContract, doneDeliveries = [], onUndoDone, unsuccessfulDeliveries = [], onMarkUnsuccessful, onUndoUnsuccessful, onAddEvent, onOpenJobOrderModal, jobOrders = [], onRemoveEvent, onRemoveDoneEvent, onRemoveUnsuccessfulEvent, onRemoveJobOrder, adminNotifications, setAdminNotifications, trips = [], onAddTrip, onUpdateJobOrderStatus, trucks = [], onUpdateTrucks, employees: propEmployees = [] }) {
+export default function Logistics({ user, onLogout, onNavigate, events, onMarkDone, onMarkDeliveryDone = onMarkDone, onStartContract, doneDeliveries = [], onUndoDone, unsuccessfulDeliveries = [], onMarkUnsuccessful, onUndoUnsuccessful, onAddEvent, onOpenJobOrderModal, jobOrders = [], onRemoveEvent, onRemoveDoneEvent, onRemoveUnsuccessfulEvent, onRemoveJobOrder, adminNotifications, setAdminNotifications, trips = [], onAddTrip, onUpdateJobOrderStatus, trucks = [], onUpdateTrucks, employees: propEmployees = [], initialActiveTab = 'dashboard' }) {
   const TRUCKS = trucks && trucks.length > 0 ? trucks : DEFAULT_TRUCKS;
   const [truckInfoSubTab, setTruckInfoSubTab] = useStickyState('management', 'logistics_truckInfoSubTab');
   const [inventoryData, setInventoryData] = useState(initialInventoryData);
   const [restockItem, setRestockItem] = useState(null);
   const [restockQuantity, setRestockQuantity] = useState('');
+  const [cachedJobOrders, setCachedJobOrders] = useState(() => {
+    if (Array.isArray(jobOrders) && jobOrders.length > 0) return jobOrders;
+    try {
+      const cached = localStorage.getItem('app_jobOrders_cache');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch (e) {}
+    return [];
+  });
+
+  useEffect(() => {
+    if (Array.isArray(jobOrders) && jobOrders.length > 0) {
+      setCachedJobOrders(jobOrders);
+      try {
+        localStorage.setItem('app_jobOrders_cache', JSON.stringify(jobOrders));
+      } catch (e) {}
+    }
+  }, [jobOrders]);
+
   const [employees, setEmployees] = useState(() => {
     if (Array.isArray(propEmployees) && propEmployees.length > 0) return propEmployees;
     try {
@@ -433,7 +490,7 @@ export default function Logistics({ user, onLogout, onNavigate, events, onMarkDo
   const [arrivedTripIds, setArrivedTripIds] = useFirebaseSync('active_logistics_session/arrivedTripIds', []);
   const [arrivalHistory, setArrivalHistory] = useFirebaseSync('active_logistics_session/arrivalHistory', []);
   const [showArrivalHistory, setShowArrivalHistory] = useState(false);
-  const [tripHistory, setTripHistory] = useState([]);
+  const [tripHistory, setTripHistory] = useStickyState([], 'app_tripHistory');
   const [showTripHistory, setShowTripHistory] = useState(false);
 
   useEffect(() => {
@@ -463,6 +520,7 @@ export default function Logistics({ user, onLogout, onNavigate, events, onMarkDo
   useEffect(() => {
     if (!Array.isArray(doneDeliveries) || doneDeliveries.length === 0 || !Array.isArray(trips)) return;
 
+    const effectiveJobOrders = (jobOrders && jobOrders.length > 0) ? jobOrders : cachedJobOrders;
     const completedEntries = [];
     doneDeliveries.forEach((delivery) => {
       if (!delivery?.jobOrderId) return;
@@ -472,8 +530,16 @@ export default function Logistics({ user, onLogout, onNavigate, events, onMarkDo
         const isMatch = selectedJobIds.includes(delivery.jobOrderId) || trip.jobOrderId === delivery.jobOrderId;
 
         if (isMatch) {
+          const tripManpower = (typeof trip.totalManpower === 'number' && trip.totalManpower > 0)
+            ? trip.totalManpower
+            : (trip.selectedJobOrders || []).reduce((total, id) => {
+                const order = effectiveJobOrders.find(o => o.id === id);
+                return total + (order ? Number(order.manpower) || 0 : 0);
+              }, 0);
+
           completedEntries.push({
             ...trip,
+            totalManpower: tripManpower,
             completedAt: delivery.deliveredAt || delivery.createdAt || new Date().toLocaleString(),
             completedReason: delivery.name || 'Completed delivery'
           });
@@ -489,10 +555,40 @@ export default function Logistics({ user, onLogout, onNavigate, events, onMarkDo
       if (uniqueEntries.length === 0) return prev;
       return [...uniqueEntries, ...prev];
     });
-  }, [doneDeliveries, trips]);
+  }, [doneDeliveries, trips, jobOrders, cachedJobOrders]);
+
+  useEffect(() => {
+    const effectiveJobOrders = (jobOrders && jobOrders.length > 0) ? jobOrders : cachedJobOrders;
+    const unsuccessfulTrips = (trips || []).filter(trip => trip?.tripStatus === 'unsuccessful');
+    if (unsuccessfulTrips.length === 0) return;
+
+    setTripHistory(prev => {
+      const existingIds = new Set(prev.map(entry => entry.id));
+      const newEntries = unsuccessfulTrips
+        .filter(trip => !existingIds.has(trip.id))
+        .map(trip => ({
+          ...trip,
+          totalManpower: (typeof trip.totalManpower === 'number' && trip.totalManpower > 0)
+            ? trip.totalManpower
+            : (trip.selectedJobOrders || []).reduce((total, id) => {
+                const order = effectiveJobOrders.find(o => o.id === id);
+                return total + (order ? Number(order.manpower) || 0 : 0);
+              }, 0),
+          completedReason: 'Unsuccessful Delivery',
+          completedAt: trip.completedAt || new Date().toLocaleString()
+        }));
+      return newEntries.length > 0 ? [...newEntries, ...prev] : prev;
+    });
+  }, [trips, jobOrders, cachedJobOrders]);
 
   const endedJobOrdersCount = (doneDeliveries || []).filter(delivery => delivery?.status === 'completion').length;
   const completedDeliveriesCount = (doneDeliveries || []).filter(delivery => delivery?.status !== 'completion').length;
+  const dashboardJobOrderEvents = getVisibleJobOrderEvents({
+    events,
+    doneDeliveries,
+    unsuccessfulDeliveries,
+    trips
+  });
 
   const handleRestock = (e) => {
     e.preventDefault();
@@ -514,12 +610,12 @@ export default function Logistics({ user, onLogout, onNavigate, events, onMarkDo
     }
   };
 
-  const [activeTab, setActiveTab] = useStickyState('dashboard', 'logistics_activeTab');
+  const [activeTab, setActiveTab] = useStickyState(initialActiveTab, 'logistics_activeTab');
   const [activeWarehouse, setActiveWarehouse] = useState('warehouse1');
   const [selectedQrItem, setSelectedQrItem] = useState(null);
 
   const completedTripIds = new Set((tripHistory || []).map(entry => entry.id));
-  const activeTrips = (trips || []).filter(trip => !completedTripIds.has(trip.id));
+  const activeTrips = (trips || []).filter(trip => !completedTripIds.has(trip.id) && trip.tripStatus !== 'unsuccessful');
 
   // Deliveries Process State
   const [processingJobOrder, setProcessingJobOrder] = useFirebaseSync('active_logistics_session/processingJobOrder', null);
@@ -592,6 +688,27 @@ export default function Logistics({ user, onLogout, onNavigate, events, onMarkDo
     }
   }, [processingJobOrder, processStep, deliveryData?.assignedManpower, deliveryData?.scannedEquipment, deliveryData?.selectedTruck, TRUCKS]);
 
+  useEffect(() => {
+    if (!showTripModal) return;
+    const { driver, pahintate } = getAutoSelectedDriverPahinante(employees, activeTrips, arrivedTripIds, newTrip.driver, newTrip.pahintate);
+    if (!driver && !pahintate) return;
+
+    setNewTrip(prev => {
+      const nextDriver = driver && driver !== prev.driver ? driver : (prev.driver || driver);
+      const nextPahinante = pahintate && pahintate !== prev.pahintate ? pahintate : (prev.pahintate || pahintate);
+
+      if (prev.driver === nextDriver && prev.pahintate === nextPahinante) {
+        return prev;
+      }
+
+      return {
+        ...prev,
+        driver: nextDriver,
+        pahintate: nextPahinante
+      };
+    });
+  }, [showTripModal, employees, activeTrips, arrivedTripIds, newTrip.driver, newTrip.pahintate]);
+
   const handleAddEvent = (eventData) => {
     onAddEvent(eventData);
     setModalOpen(false);
@@ -613,9 +730,15 @@ export default function Logistics({ user, onLogout, onNavigate, events, onMarkDo
   const handleTripSubmit = (e) => {
     e.preventDefault();
     if (newTrip.truckNumber && newTrip.driver && newTrip.pahintate && newTrip.selectedJobOrders.length > 0) {
+      const effectiveJobOrders = (jobOrders && jobOrders.length > 0) ? jobOrders : cachedJobOrders;
+      const totalManpower = (newTrip.selectedJobOrders || []).reduce((total, id) => {
+        const order = effectiveJobOrders.find(o => o.id === id);
+        return total + (order ? Number(order.manpower) || 0 : 0);
+      }, 0);
       const tripData = {
         ...newTrip,
         id: Date.now(),
+        totalManpower,
         createdDate: new Date().toISOString().split('T')[0]
       };
       if (onAddTrip) {
@@ -623,7 +746,7 @@ export default function Logistics({ user, onLogout, onNavigate, events, onMarkDo
       }
 
       newTrip.selectedJobOrders.forEach((jobOrderId, index) => {
-        const jobOrder = jobOrders.find(order => order.id === jobOrderId);
+        const jobOrder = effectiveJobOrders.find(order => order.id === jobOrderId);
         if (jobOrder && onAddEvent) {
           const tripEvent = {
             id: Date.now() + index,
@@ -656,23 +779,33 @@ export default function Logistics({ user, onLogout, onNavigate, events, onMarkDo
     }
   };
 
-  const getTotalManpower = (jobOrderIds) => {
-    return (jobOrderIds || []).reduce((total, id) => {
-      const order = jobOrders.find(o => o.id === id);
-      return total + (order ? order.manpower : 0);
+  const effectiveJobOrders = (jobOrders && jobOrders.length > 0) ? jobOrders : cachedJobOrders;
+
+  const getTotalManpower = (jobOrderIds, entryOrTrip = null) => {
+    if (entryOrTrip && typeof entryOrTrip.totalManpower === 'number' && entryOrTrip.totalManpower > 0) {
+      return entryOrTrip.totalManpower;
+    }
+    const calculated = (jobOrderIds || []).reduce((total, id) => {
+      const order = effectiveJobOrders.find(o => o.id === id);
+      return total + (order && typeof order.manpower === 'number' ? order.manpower : (order?.manpower ? Number(order.manpower) || 0 : 0));
     }, 0);
+    if (calculated > 0) return calculated;
+    if (entryOrTrip && typeof entryOrTrip.totalManpower === 'number') {
+      return entryOrTrip.totalManpower;
+    }
+    return 0;
   };
 
   const getLoadSummary = (jobOrderIds) => {
     if (!jobOrderIds || jobOrderIds.length === 0) return 'No loads';
-    const orders = jobOrders.filter(o => jobOrderIds.includes(o.id));
+    const orders = effectiveJobOrders.filter(o => jobOrderIds.includes(o.id));
     if (orders.length === 0) return 'Loading loads...';
     return orders.map(o => o.jobType).join(', ');
   };
 
   const getDeliveryInfo = (jobOrderIds) => {
     if (!jobOrderIds || jobOrderIds.length === 0) return 'No deliveries';
-    const orders = jobOrders.filter(o => jobOrderIds.includes(o.id));
+    const orders = effectiveJobOrders.filter(o => jobOrderIds.includes(o.id));
     if (orders.length === 0) return 'Loading delivery info...';
     const deliveryInfo = orders.map(o => `${o.customerName} (${o.company}) - ${o.address}`);
     return deliveryInfo.join('; ');
@@ -989,7 +1122,7 @@ export default function Logistics({ user, onLogout, onNavigate, events, onMarkDo
                 <div className="meetings-header">
                   <h3>Deliveries</h3>
                 </div>
-                <div className="meeting-list">
+                <div className="meeting-list deliveries-list">
                   {events.filter(event => event.status === 'trip').length === 0 ? (
                     <p style={{ padding: '12px' }}>No Deliveries scheduled.</p>
                   ) : (
@@ -1005,7 +1138,7 @@ export default function Logistics({ user, onLogout, onNavigate, events, onMarkDo
                         <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
                           <span className="meeting-time">{event.time}</span>
                           <span className="meeting-date">📅{new Date(event.date).toLocaleDateString()}</span>
-                          <button className="btn-remove" onClick={() => onMarkDone(event.id)}>Done</button>
+                          <button className="btn-remove" onClick={() => onMarkDeliveryDone(event.id)}>Done</button>
                           <button
                             className="btn-unsuccessful"
                             onClick={() => onMarkUnsuccessful && onMarkUnsuccessful(event.id)}
@@ -1024,11 +1157,11 @@ export default function Logistics({ user, onLogout, onNavigate, events, onMarkDo
                   <div className="meetings-header">
                     <h3>Job Orders</h3>
                   </div>
-                  <div className="meeting-list">
-                    {events.filter(event => ['active', 'started', 'completion'].includes(event.status)).length === 0 ? (
+                  <div className="meeting-list job-orders-list">
+                    {dashboardJobOrderEvents.length === 0 ? (
                       <p style={{ padding: '12px' }}>No Job Order Scheduled.</p>
                     ) : (
-                      events.filter(event => ['active', 'started', 'completion'].includes(event.status)).map(event => (
+                      dashboardJobOrderEvents.map(event => (
                         <div key={event.id} className="meeting-item">
                           <div style={{ display: 'flex', flexDirection: 'column' }}>
                             <span className="meeting-name">{event.name}</span>
@@ -2214,8 +2347,8 @@ export default function Logistics({ user, onLogout, onNavigate, events, onMarkDo
               <section className="stats-section">
                 <StatCard title="Active Trips" value={activeTrips.length} icon="🚚" />
                 <StatCard title="Total Loads" value={activeTrips.reduce((sum, trip) => sum + (trip.selectedJobOrders || []).length, 0)} icon="📦" />
-                <StatCard title="Total Manpower" value={activeTrips.reduce((sum, trip) => sum + getTotalManpower(trip.selectedJobOrders || []), 0)} icon="👥" />
-                <StatCard title="Available Orders" value={jobOrders.filter(order => order.status !== 'processed' && order.status !== 'assigned').length} icon="🚗" />
+                <StatCard title="Total Manpower" value={activeTrips.reduce((sum, trip) => sum + getTotalManpower(trip.selectedJobOrders || [], trip), 0)} icon="👥" />
+                <StatCard title="Available Orders" value={effectiveJobOrders.filter(order => order.status !== 'processed' && order.status !== 'assigned').length} icon="🚗" />
               </section>
 
               <section className="meetings-section">
@@ -2300,7 +2433,7 @@ export default function Logistics({ user, onLogout, onNavigate, events, onMarkDo
                               <div style={{ fontSize: '11px', color: '#666' }}>Job Orders</div>
                             </div>
                             <div>
-                              <div style={{ fontSize: '20px', fontWeight: '700', color: '#43a047' }}>{getTotalManpower(trip.selectedJobOrders)}</div>
+                              <div style={{ fontSize: '20px', fontWeight: '700', color: '#43a047' }}>{getTotalManpower(trip.selectedJobOrders, trip)}</div>
                               <div style={{ fontSize: '11px', color: '#666' }}>Manpower</div>
                             </div>
                           </div>
@@ -2375,7 +2508,7 @@ export default function Logistics({ user, onLogout, onNavigate, events, onMarkDo
                                     <div style={{ fontSize: '11px', color: '#666' }}>Job Orders</div>
                                   </div>
                                   <div>
-                                    <div style={{ fontSize: '20px', fontWeight: '700', color: '#43a047' }}>{getTotalManpower(entry.selectedJobOrders || [])}</div>
+                                    <div style={{ fontSize: '20px', fontWeight: '700', color: '#43a047' }}>{getTotalManpower(entry.selectedJobOrders || [], entry)}</div>
                                     <div style={{ fontSize: '11px', color: '#666' }}>Manpower</div>
                                   </div>
                                 </div>
@@ -2561,10 +2694,9 @@ export default function Logistics({ user, onLogout, onNavigate, events, onMarkDo
                   <select name="driver" value={newTrip.driver} onChange={handleInputChange} required style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #ddd', fontSize: '14px', boxSizing: 'border-box' }}>
                     <option value="">Select Driver...</option>
                     {(() => {
-                      const presentDP = (employees || []).filter(emp => emp && emp.name && emp.status === 'Present' && emp.department === 'Driver/Pahinante');
-                      const list = presentDP.length > 0 ? presentDP : (employees || []).filter(emp => emp && emp.name && emp.status === 'Present');
-                      return list.map(emp => (
-                        <option key={emp.id} value={emp.name}>{emp.name}</option>
+                      const { driverOptions } = getAvailableDriverPahinanteOptions(employees, activeTrips, arrivedTripIds);
+                      return driverOptions.map(emp => (
+                        <option key={emp.id || emp.name} value={emp.name}>{emp.name}</option>
                       ));
                     })()}
                   </select>
@@ -2574,10 +2706,9 @@ export default function Logistics({ user, onLogout, onNavigate, events, onMarkDo
                   <select name="pahintate" value={newTrip.pahintate} onChange={handleInputChange} required style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #ddd', fontSize: '14px', boxSizing: 'border-box' }}>
                     <option value="">Select Assistant...</option>
                     {(() => {
-                      const presentDP = (employees || []).filter(emp => emp && emp.name && emp.status === 'Present' && emp.department === 'Driver/Pahinante');
-                      const list = presentDP.length > 0 ? presentDP : (employees || []).filter(emp => emp && emp.name && emp.status === 'Present');
-                      return list.map(emp => (
-                        <option key={emp.id} value={emp.name}>{emp.name}</option>
+                      const { pahintateOptions } = getAvailableDriverPahinanteOptions(employees, activeTrips, arrivedTripIds);
+                      return pahintateOptions.map(emp => (
+                        <option key={emp.id || emp.name} value={emp.name}>{emp.name}</option>
                       ));
                     })()}
                   </select>

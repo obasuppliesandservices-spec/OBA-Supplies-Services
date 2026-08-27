@@ -51,6 +51,11 @@ export const useFirebaseSync = (path, initialState) => {
              finalVal = initialState;
           }
         }
+        if (path === 'global/jobOrders' && Array.isArray(finalVal) && finalVal.length > 0) {
+          try {
+            localStorage.setItem('app_jobOrders_cache', JSON.stringify(finalVal));
+          } catch (e) {}
+        }
         setState(finalVal);
         stateRef.current = finalVal;
       } else {

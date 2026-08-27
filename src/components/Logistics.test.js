@@ -1,11 +1,61 @@
-import { 
+import React from 'react';
+import { createRoot } from 'react-dom/client';
+import { act } from 'react-dom/test-utils';
+import Logistics, { 
   getTripPrefillData, 
   getTruckArrivalTrips, 
   buildArrivalHistoryEntry, 
   getAutoAssignedManpower,
   getSuggestedTruckForWeight,
-  getNextHigherCapacityTruck
+  getNextHigherCapacityTruck,
+  getAvailableDriverPahinanteOptions
 } from './Logistics';
+
+describe('Logistics default tab', () => {
+  it('uses the dashboard tab when no initialActiveTab prop is provided', () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+
+    expect(() => {
+      act(() => {
+        createRoot(container).render(
+          <Logistics
+            user={{}}
+            onLogout={() => {}}
+            onNavigate={() => {}}
+            events={[]}
+            onMarkDone={() => {}}
+            onStartContract={() => {}}
+            doneDeliveries={[]}
+            onUndoDone={() => {}}
+            unsuccessfulDeliveries={[]}
+            onMarkUnsuccessful={() => {}}
+            onUndoUnsuccessful={() => {}}
+            onAddEvent={() => {}}
+            onOpenJobOrderModal={() => {}}
+            jobOrders={[]}
+            onRemoveEvent={() => {}}
+            onRemoveDoneEvent={() => {}}
+            onRemoveUnsuccessfulEvent={() => {}}
+            onRemoveJobOrder={() => {}}
+            adminNotifications={[]}
+            setAdminNotifications={() => {}}
+            trips={[]}
+            onAddTrip={() => {}}
+            onUpdateJobOrderStatus={() => {}}
+            trucks={[]}
+            onUpdateTrucks={() => {}}
+            employees={[]}
+          />
+        );
+      });
+    }).not.toThrow();
+
+    act(() => {
+      container.remove();
+    });
+  });
+});
 
 describe('getSuggestedTruckForWeight', () => {
   const mockTrucks = [
@@ -134,6 +184,43 @@ describe('getTripPrefillData', () => {
       pahintate: 'Jane Smith',
       selectedJobOrders: ['job-1']
     });
+  });
+});
+
+describe('getAvailableDriverPahinanteOptions', () => {
+  it('hides driver and pahintate names already assigned to active trips until the truck arrives', () => {
+    const employees = [
+      { id: '1', name: 'Driver A', status: 'Present', department: 'Driver/Pahinante' },
+      { id: '2', name: 'Driver B', status: 'Present', department: 'Driver/Pahinante' },
+      { id: '3', name: 'Driver C', status: 'Present', department: 'Driver/Pahinante' },
+      { id: '4', name: 'Driver D', status: 'Present', department: 'Driver/Pahinante' }
+    ];
+
+    const activeTrips = [
+      { id: 'trip-1', driver: 'Driver A', pahintate: 'Driver B' },
+      { id: 'trip-2', driver: 'Driver C', pahintate: 'Driver D' }
+    ];
+
+    const result = getAvailableDriverPahinanteOptions(employees, activeTrips, ['trip-2']);
+
+    expect(result.driverOptions.map(emp => emp.name)).toEqual(['Driver C', 'Driver D']);
+    expect(result.pahintateOptions.map(emp => emp.name)).toEqual(['Driver C', 'Driver D']);
+  });
+
+  it('keeps driver and pahintate unavailable until the trip has arrived', () => {
+    const employees = [
+      { id: '1', name: 'Driver A', status: 'Present', department: 'Driver/Pahinante' },
+      { id: '2', name: 'Driver B', status: 'Present', department: 'Driver/Pahinante' }
+    ];
+
+    const activeTrips = [
+      { id: 'trip-1', driver: 'Driver A', pahintate: 'Driver B' }
+    ];
+
+    const result = getAvailableDriverPahinanteOptions(employees, activeTrips, []);
+
+    expect(result.driverOptions).toEqual([]);
+    expect(result.pahintateOptions).toEqual([]);
   });
 });
 

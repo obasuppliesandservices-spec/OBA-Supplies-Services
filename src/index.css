@@ -654,6 +654,13 @@ html, body, #root {
   gap: 8px;
 }
 
+.job-orders-list,
+.deliveries-list {
+  max-height: 440px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
 .meetings-grid {
   display: flex;
   gap: 20px;

@@ -2,6 +2,40 @@ import React, { useState, useEffect } from 'react';
 import toast from 'react-hot-toast';
 import { database } from '../firebase';
 import { ref, onValue } from 'firebase/database';
+import useStickyState from '../useStickyState';
+
+const getAvailableDriverPahinanteOptions = (employees = [], trips = [], arrivedTripIds = []) => {
+  const presentDP = (employees || []).filter(emp => emp && emp.name && emp.status === 'Present' && emp.department === 'Driver/Pahinante');
+  const allPresentDP = presentDP.length > 0 ? presentDP : (employees || []).filter(emp => emp && emp.name && emp.status === 'Present');
+  const arrivedSet = new Set((arrivedTripIds || []).map(id => String(id)));
+  const reservedNames = new Set();
+
+  (trips || []).forEach((trip) => {
+    if (!trip || arrivedSet.has(String(trip.id))) return;
+    if (trip.driver) reservedNames.add(trip.driver);
+    if (trip.pahintate) reservedNames.add(trip.pahintate);
+  });
+
+  const availableOptions = allPresentDP.filter(emp => !reservedNames.has(emp.name));
+  return {
+    driverOptions: availableOptions,
+    pahintateOptions: availableOptions
+  };
+};
+
+const getAutoSelectedDriverPahinante = (employees = [], trips = [], arrivedTripIds = [], currentDriver = '', currentPahinante = '') => {
+  const { driverOptions, pahintateOptions } = getAvailableDriverPahinanteOptions(employees, trips, arrivedTripIds);
+  const driver = currentDriver && driverOptions.some(emp => emp.name === currentDriver)
+    ? currentDriver
+    : (driverOptions[0]?.name || '');
+
+  const fallbackPahinante = pahintateOptions.find(emp => emp.name !== driver)?.name || driver || '';
+  const pahintate = currentPahinante && pahintateOptions.some(emp => emp.name === currentPahinante)
+    ? currentPahinante
+    : fallbackPahinante;
+
+  return { driver: driver || '', pahintate: (pahintate && pahintate !== driver) || !driver ? (pahintate || '') : '' };
+};
 
 function StatCard({ title, value, icon = '👥', onView }) {
   return (
@@ -34,6 +68,27 @@ export default function TripManager({ user, onLogout, onNavigate, jobOrders = []
   });
 
   const [showModal, setShowModal] = useState(false);
+  const [cachedJobOrders, setCachedJobOrders] = useState(() => {
+    if (Array.isArray(jobOrders) && jobOrders.length > 0) return jobOrders;
+    try {
+      const cached = localStorage.getItem('app_jobOrders_cache');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch (e) {}
+    return [];
+  });
+
+  useEffect(() => {
+    if (Array.isArray(jobOrders) && jobOrders.length > 0) {
+      setCachedJobOrders(jobOrders);
+      try {
+        localStorage.setItem('app_jobOrders_cache', JSON.stringify(jobOrders));
+      } catch (e) {}
+    }
+  }, [jobOrders]);
+
   const [employees, setEmployees] = useState(() => {
     if (Array.isArray(propEmployees) && propEmployees.length > 0) return propEmployees;
     try {
@@ -45,7 +100,7 @@ export default function TripManager({ user, onLogout, onNavigate, jobOrders = []
     } catch (e) {}
     return [];
   });
-  const [tripHistory, setTripHistory] = useState([]);
+  const [tripHistory, setTripHistory] = useStickyState([], 'app_tripHistory');
   const [showTripHistory, setShowTripHistory] = useState(false);
 
   useEffect(() => {
@@ -75,6 +130,7 @@ export default function TripManager({ user, onLogout, onNavigate, jobOrders = []
   useEffect(() => {
     if (!Array.isArray(doneDeliveries) || doneDeliveries.length === 0 || !Array.isArray(trips)) return;
 
+    const effectiveJobOrders = (jobOrders && jobOrders.length > 0) ? jobOrders : cachedJobOrders;
     const completedEntries = [];
     doneDeliveries.forEach((delivery) => {
       if (!delivery?.jobOrderId) return;
@@ -84,8 +140,16 @@ export default function TripManager({ user, onLogout, onNavigate, jobOrders = []
         const isMatch = selectedJobIds.includes(delivery.jobOrderId) || trip.jobOrderId === delivery.jobOrderId;
 
         if (isMatch) {
+          const tripManpower = (typeof trip.totalManpower === 'number' && trip.totalManpower > 0)
+            ? trip.totalManpower
+            : (trip.selectedJobOrders || []).reduce((total, id) => {
+                const order = effectiveJobOrders.find(o => o.id === id);
+                return total + (order ? Number(order.manpower) || 0 : 0);
+              }, 0);
+
           completedEntries.push({
             ...trip,
+            totalManpower: tripManpower,
             completedAt: delivery.deliveredAt || delivery.createdAt || new Date().toLocaleString(),
             completedReason: delivery.name || 'Completed delivery'
           });
@@ -101,10 +165,55 @@ export default function TripManager({ user, onLogout, onNavigate, jobOrders = []
       if (uniqueEntries.length === 0) return prev;
       return [...uniqueEntries, ...prev];
     });
-  }, [doneDeliveries, trips]);
+  }, [doneDeliveries, trips, jobOrders, cachedJobOrders]);
+
+  useEffect(() => {
+    const effectiveJobOrders = (jobOrders && jobOrders.length > 0) ? jobOrders : cachedJobOrders;
+    const unsuccessfulTrips = (trips || []).filter(trip => trip?.tripStatus === 'unsuccessful');
+    if (unsuccessfulTrips.length === 0) return;
+
+    setTripHistory(prev => {
+      const existingIds = new Set(prev.map(entry => entry.id));
+      const newEntries = unsuccessfulTrips
+        .filter(trip => !existingIds.has(trip.id))
+        .map(trip => ({
+          ...trip,
+          totalManpower: (typeof trip.totalManpower === 'number' && trip.totalManpower > 0)
+            ? trip.totalManpower
+            : (trip.selectedJobOrders || []).reduce((total, id) => {
+                const order = effectiveJobOrders.find(o => o.id === id);
+                return total + (order ? Number(order.manpower) || 0 : 0);
+              }, 0),
+          completedReason: 'Unsuccessful Delivery',
+          completedAt: trip.completedAt || new Date().toLocaleString()
+        }));
+      return newEntries.length > 0 ? [...newEntries, ...prev] : prev;
+    });
+  }, [trips, jobOrders, cachedJobOrders]);
+
+  useEffect(() => {
+    if (!showModal) return;
+    const { driver, pahintate } = getAutoSelectedDriverPahinante(employees, trips, [], newTrip.driver, newTrip.pahintate);
+    if (!driver && !pahintate) return;
+
+    setNewTrip(prev => {
+      const nextDriver = driver && driver !== prev.driver ? driver : (prev.driver || driver);
+      const nextPahinante = pahintate && pahintate !== prev.pahintate ? pahintate : (prev.pahintate || pahintate);
+
+      if (prev.driver === nextDriver && prev.pahintate === nextPahinante) {
+        return prev;
+      }
+
+      return {
+        ...prev,
+        driver: nextDriver,
+        pahintate: nextPahinante
+      };
+    });
+  }, [showModal, employees, trips, newTrip.driver, newTrip.pahintate]);
 
   const completedTripIds = new Set((tripHistory || []).map(entry => entry.id));
-  const activeTrips = (trips || []).filter(trip => !completedTripIds.has(trip.id));
+  const activeTrips = (trips || []).filter(trip => !completedTripIds.has(trip.id) && trip.tripStatus !== 'unsuccessful');
 
   const handleTruckSelectChange = (e) => {
     const selectedId = e.target.value;
@@ -139,16 +248,22 @@ export default function TripManager({ user, onLogout, onNavigate, jobOrders = []
   const handleSubmit = (e) => {
     e.preventDefault();
     if (newTrip.truckNumber && newTrip.driver && newTrip.pahintate && newTrip.selectedJobOrders.length > 0) {
+      const effectiveJobOrders = (jobOrders && jobOrders.length > 0) ? jobOrders : cachedJobOrders;
+      const totalManpower = (newTrip.selectedJobOrders || []).reduce((total, id) => {
+        const order = effectiveJobOrders.find(o => o.id === id);
+        return total + (order ? Number(order.manpower) || 0 : 0);
+      }, 0);
       const tripData = {
         ...newTrip,
         id: Date.now(),
+        totalManpower,
         createdDate: new Date().toISOString().split('T')[0]
       };
       onAddTrip(tripData);
 
       // Create calendar events for each job order in the trip
       newTrip.selectedJobOrders.forEach((jobOrderId, index) => {
-        const jobOrder = jobOrders.find(order => order.id === jobOrderId);
+        const jobOrder = effectiveJobOrders.find(order => order.id === jobOrderId);
         if (jobOrder && onAddEvent) {
           const tripEvent = {
             id: Date.now() + index,
@@ -185,23 +300,33 @@ export default function TripManager({ user, onLogout, onNavigate, jobOrders = []
     }
   };
 
-  const getTotalManpower = (jobOrderIds) => {
-    return (jobOrderIds || []).reduce((total, id) => {
-      const order = jobOrders.find(o => o.id === id);
-      return total + (order ? order.manpower : 0);
+  const effectiveJobOrders = (jobOrders && jobOrders.length > 0) ? jobOrders : cachedJobOrders;
+
+  const getTotalManpower = (jobOrderIds, entryOrTrip = null) => {
+    if (entryOrTrip && typeof entryOrTrip.totalManpower === 'number' && entryOrTrip.totalManpower > 0) {
+      return entryOrTrip.totalManpower;
+    }
+    const calculated = (jobOrderIds || []).reduce((total, id) => {
+      const order = effectiveJobOrders.find(o => o.id === id);
+      return total + (order && typeof order.manpower === 'number' ? order.manpower : (order?.manpower ? Number(order.manpower) || 0 : 0));
     }, 0);
+    if (calculated > 0) return calculated;
+    if (entryOrTrip && typeof entryOrTrip.totalManpower === 'number') {
+      return entryOrTrip.totalManpower;
+    }
+    return 0;
   };
 
   const getLoadSummary = (jobOrderIds) => {
     if (!jobOrderIds || jobOrderIds.length === 0) return 'No loads';
-    const orders = jobOrders.filter(o => (jobOrderIds || []).includes(o.id));
+    const orders = effectiveJobOrders.filter(o => (jobOrderIds || []).includes(o.id));
     if (orders.length === 0) return 'Loading loads...';
     return orders.map(o => o.jobType).join(', ');
   };
 
   const getDeliveryInfo = (jobOrderIds) => {
     if (!jobOrderIds || jobOrderIds.length === 0) return 'No deliveries';
-    const orders = jobOrders.filter(o => (jobOrderIds || []).includes(o.id));
+    const orders = effectiveJobOrders.filter(o => (jobOrderIds || []).includes(o.id));
     if (orders.length === 0) return 'Loading delivery info...';
     const deliveryInfo = orders.map(o => `${o.customerName} (${o.company}) - ${o.address}`);
     return deliveryInfo.join('; ');
@@ -258,8 +383,8 @@ export default function TripManager({ user, onLogout, onNavigate, jobOrders = []
           <section className="stats-section">
             <StatCard title="Active Trips" value={activeTrips.length} icon="🚚" />
             <StatCard title="Total Loads" value={activeTrips.reduce((sum, trip) => sum + (trip.selectedJobOrders || []).length, 0)} icon="📦" />
-            <StatCard title="Total Manpower" value={activeTrips.reduce((sum, trip) => sum + getTotalManpower(trip.selectedJobOrders || []), 0)} icon="👥" />
-            <StatCard title="Available Orders" value={jobOrders.filter(order => order.status !== 'processed' && order.status !== 'assigned').length} icon="🚗" />
+            <StatCard title="Total Manpower" value={activeTrips.reduce((sum, trip) => sum + getTotalManpower(trip.selectedJobOrders || [], trip), 0)} icon="👥" />
+            <StatCard title="Available Orders" value={effectiveJobOrders.filter(order => order.status !== 'processed' && order.status !== 'assigned').length} icon="🚗" />
           </section>
 
           {/* Create Trip Section */}
@@ -397,7 +522,7 @@ export default function TripManager({ user, onLogout, onNavigate, jobOrders = []
                         </div>
                         <div>
                           <div style={{ fontSize: '20px', fontWeight: '700', color: '#43a047' }}>
-                            {getTotalManpower(trip.selectedJobOrders || [])}
+                            {getTotalManpower(trip.selectedJobOrders || [], trip)}
                           </div>
                           <div style={{ fontSize: '11px', color: '#666' }}>Manpower</div>
                         </div>
@@ -414,12 +539,12 @@ export default function TripManager({ user, onLogout, onNavigate, jobOrders = []
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
                     <div>
                       <div style={{ fontWeight: '700', color: '#1565c0', fontSize: '18px' }}>Trip History</div>
-                      <div style={{ fontSize: '13px', color: '#666', marginTop: '4px' }}>{tripHistory.length} completed trip{tripHistory.length === 1 ? '' : 's'}</div>
+                      <div style={{ fontSize: '13px', color: '#666', marginTop: '4px' }}>{tripHistory.length} trip{tripHistory.length === 1 ? '' : 's'} recorded</div>
                     </div>
                     <button type="button" onClick={() => setShowTripHistory(false)} style={{ border: 'none', background: 'transparent', color: '#666', cursor: 'pointer', fontSize: '14px' }}>Close</button>
                   </div>
                   {tripHistory.length === 0 ? (
-                    <div style={{ padding: '24px', border: '1px dashed #ddd', borderRadius: '12px', color: '#777', backgroundColor: '#fafafa', textAlign: 'center' }}>No completed trips recorded yet.</div>
+                    <div style={{ padding: '24px', border: '1px dashed #ddd', borderRadius: '12px', color: '#777', backgroundColor: '#fafafa', textAlign: 'center' }}>No trip history recorded yet.</div>
                   ) : (
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '20px' }}>
                       {tripHistory.map((entry) => (
@@ -457,7 +582,7 @@ export default function TripManager({ user, onLogout, onNavigate, jobOrders = []
                             </div>
                             <div style={{ backgroundColor: '#e3f2fd', padding: '12px', borderRadius: '6px' }}>
                               <div style={{ fontSize: '11px', color: '#666', marginBottom: '4px' }}>Status</div>
-                              <div style={{ fontSize: '13px', color: '#333', lineHeight: '1.4' }}>Completed: {entry.completedAt || 'Recently completed'}</div>
+                              <div style={{ fontSize: '13px', color: entry.tripStatus === 'unsuccessful' ? '#bf4f00' : '#333', lineHeight: '1.4', fontWeight: entry.tripStatus === 'unsuccessful' ? '700' : '400' }}>{entry.tripStatus === 'unsuccessful' ? 'Unsuccessful Delivery' : 'Completed'}: {entry.completedAt || 'Recently completed'}</div>
                             </div>
                             <div style={{ backgroundColor: '#f0f8ff', padding: '12px', borderRadius: '6px' }}>
                               <div style={{ fontSize: '11px', color: '#666', marginBottom: '4px' }}>Reason</div>
@@ -473,7 +598,7 @@ export default function TripManager({ user, onLogout, onNavigate, jobOrders = []
                                 <div style={{ fontSize: '11px', color: '#666' }}>Job Orders</div>
                               </div>
                               <div>
-                                <div style={{ fontSize: '20px', fontWeight: '700', color: '#43a047' }}>{getTotalManpower(entry.selectedJobOrders || [])}</div>
+                                <div style={{ fontSize: '20px', fontWeight: '700', color: '#43a047' }}>{getTotalManpower(entry.selectedJobOrders || [], entry)}</div>
                                 <div style={{ fontSize: '11px', color: '#666' }}>Manpower</div>
                               </div>
                             </div>
@@ -624,10 +749,9 @@ export default function TripManager({ user, onLogout, onNavigate, jobOrders = []
                   >
                     <option value="">Select Driver...</option>
                     {(() => {
-                      const presentDP = (employees || []).filter(emp => emp && emp.name && emp.status === 'Present' && emp.department === 'Driver/Pahinante');
-                      const list = presentDP.length > 0 ? presentDP : (employees || []).filter(emp => emp && emp.name && emp.status === 'Present');
-                      return list.map(emp => (
-                        <option key={emp.id} value={emp.name}>{emp.name}</option>
+                      const { driverOptions } = getAvailableDriverPahinanteOptions(employees, trips, []);
+                      return driverOptions.map(emp => (
+                        <option key={emp.id || emp.name} value={emp.name}>{emp.name}</option>
                       ));
                     })()}
                   </select>
@@ -652,10 +776,9 @@ export default function TripManager({ user, onLogout, onNavigate, jobOrders = []
                   >
                     <option value="">Select Assistant...</option>
                     {(() => {
-                      const presentDP = (employees || []).filter(emp => emp && emp.name && emp.status === 'Present' && emp.department === 'Driver/Pahinante');
-                      const list = presentDP.length > 0 ? presentDP : (employees || []).filter(emp => emp && emp.name && emp.status === 'Present');
-                      return list.map(emp => (
-                        <option key={emp.id} value={emp.name}>{emp.name}</option>
+                      const { pahintateOptions } = getAvailableDriverPahinanteOptions(employees, trips, []);
+                      return pahintateOptions.map(emp => (
+                        <option key={emp.id || emp.name} value={emp.name}>{emp.name}</option>
                       ));
                     })()}
                   </select>

@@ -32,4 +32,62 @@ describe('Dashboard ended job orders', () => {
       container.remove();
     });
   });
+
+  it('keeps Job Order visible in the list when delivery is marked Done', () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+
+    act(() => {
+      createRoot(container).render(
+        <Dashboard
+          events={[
+            { id: 2, status: 'active', jobOrderId: 'order-1', name: 'Order 1 (Start)', time: '08:00 AM', date: '2026-08-28' }
+          ]}
+          doneDeliveries={[{ id: 1, status: 'done', jobOrderId: 'order-1', name: 'Trip 1' }]}
+          unsuccessfulDeliveries={[]}
+          jobOrders={[]}
+          onNavigate={() => {}}
+          onLogout={() => {}}
+          onMarkDone={() => {}}
+          onStartContract={() => {}}
+        />
+      );
+    });
+
+    expect(container.textContent).toContain('Order 1 (Start)');
+    expect(container.textContent).toContain('Start Contract');
+
+    act(() => {
+      container.remove();
+    });
+  });
+
+  it('removes Job Order from the list when delivery is marked Unsuccessful', () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+
+    act(() => {
+      createRoot(container).render(
+        <Dashboard
+          events={[
+            { id: 2, status: 'active', jobOrderId: 'order-1', name: 'Order 1 (Start)', time: '08:00 AM', date: '2026-08-28' }
+          ]}
+          doneDeliveries={[]}
+          unsuccessfulDeliveries={[{ id: 1, status: 'unsuccessful', jobOrderId: 'order-1', name: 'Trip 1' }]}
+          jobOrders={[]}
+          onNavigate={() => {}}
+          onLogout={() => {}}
+          onMarkDone={() => {}}
+          onStartContract={() => {}}
+        />
+      );
+    });
+
+    expect(container.textContent).not.toContain('Order 1 (Start)');
+    expect(container.textContent).toContain('No Job Order Scheduled.');
+
+    act(() => {
+      container.remove();
+    });
+  });
 });

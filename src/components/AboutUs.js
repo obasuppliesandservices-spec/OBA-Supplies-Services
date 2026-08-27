@@ -27,7 +27,7 @@ export default function AboutUs() {
         }}
       >
         <img
-          src="https://scontent.fmnl4-4.fna.fbcdn.net/v/t1.15752-9/661244309_807178005310347_5111154281482585298_n.jpg?stp=dst-jpg_s1080x2048_tt6&_nc_cat=102&ccb=1-7&_nc_sid=0024fc&_nc_eui2=AeGBHoIVbbslRKrDwTztISk4iK2Bawmwe8iIrYFrCbB7yHz6rc_2cFqTt8XuZtCP_2uNgXm4ZykMJV9_TLGXU_p-&_nc_ohc=WzfzwffKCWwQ7kNvwGGdYm0&_nc_oc=Adq07CrMH2zz5-VdzgbyfksRRipkPjEyf4GGkp5ixFa0_XUs64oQ_CAEkUvERc1k0no&_nc_ad=z-m&_nc_cid=0&_nc_pt=1&_nc_zt=23&_nc_ht=scontent.fmnl4-4.fna&_nc_ss=7a32e&oh=03_Q7cD5AHHq3CffzCgUD3hXwSkbmJ-OuP4LmQaZwzNimq7ZOu0GQ&oe=69F9B103"
+          src="/images/picture.png"
           alt="OBA team and operations collage"
           style={{
             width: '100%',

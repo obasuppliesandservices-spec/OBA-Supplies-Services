@@ -4,7 +4,7 @@ import AdminService from './AdminService';
 import AdminProduct from './AdminProduct';
 import AdminOrderspage from './AdminOrderspage';
 
-export default function AdminAddDelete({ onLogout }) {
+export default function AdminAddDelete({ onLogout, ...dashboardProps }) {
   const [currentPage, setCurrentPage] = useStickyState('services', 'admin_currentPage');
 
   const renderContent = () => {

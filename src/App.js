@@ -18,7 +18,7 @@ import Employees from './components/Employees';
 import AdminAddDelete from './components/AdminAddDelete';
 import { Toaster } from 'react-hot-toast';
 import { useFirebaseSync } from './useFirebaseSync';
-import { cleanupCompletedTrips } from './deliveryUtils';
+import { cleanupCompletedTrips, removeCompletedEvent } from './deliveryUtils';
 import TruckManagement from './components/TruckManagement';
 import ReportsAnalytics from './components/ReportsAnalytics';
 import RfidKiosk from './components/RfidKiosk';
@@ -302,27 +302,25 @@ export default function App() {
       });
     }
 
-    setEvents(prevEvents => {
-      if (ev.status === 'completion') {
-        const targetOrderId = ev.jobOrderId;
-        const targetName = ev.name ? ev.name.replace(/ \(End\).*$/, '') : null;
-
-        return prevEvents.filter(event => {
-          if (targetOrderId && event.jobOrderId === targetOrderId) {
-            return false;
-          }
-          if (!targetOrderId && targetName && event.name && event.name.startsWith(targetName)) {
-            return false;
-          }
-          return event.id !== id;
-        });
-      }
-      return prevEvents.filter(event => event.id !== id);
-    });
+    setEvents(prevEvents => removeCompletedEvent(prevEvents, ev));
 
     setDoneDeliveries(prevDone => {
       const timestamp = new Date();
       const doneEvent = { ...ev, status: ev.status === 'completion' ? 'completion' : 'done', deliveredAt: timestamp.toISOString(), deliveredTime: timestamp.toLocaleTimeString() };
+      const nextDone = [...prevDone, doneEvent];
+      setTrips(prevTrips => cleanupCompletedTrips(prevTrips, nextDone));
+      return nextDone;
+    });
+  }
+
+  function markDeliveryDone(id) {
+    const ev = events.find(event => event.id === id);
+    if (!ev) return;
+
+    setEvents(prevEvents => prevEvents.filter(event => event.id !== id));
+    setDoneDeliveries(prevDone => {
+      const timestamp = new Date();
+      const doneEvent = { ...ev, status: 'done', deliveredAt: timestamp.toISOString(), deliveredTime: timestamp.toLocaleTimeString() };
       const nextDone = [...prevDone, doneEvent];
       setTrips(prevTrips => cleanupCompletedTrips(prevTrips, nextDone));
       return nextDone;
@@ -357,6 +355,17 @@ export default function App() {
     if (!ev) return;
     setEvents(prevEvents => prevEvents.filter(event => event.id !== id));
     setUnsuccessfulDeliveries(prevUnsuccessful => [...prevUnsuccessful, ev]);
+    setTrips(prevTrips => prevTrips.map(trip => {
+      const matchesTrip = ev.tripId && String(trip.id) === String(ev.tripId);
+      const matchesJobOrder = ev.jobOrderId && (trip.jobOrderId === ev.jobOrderId || (trip.selectedJobOrders || []).includes(ev.jobOrderId));
+      if (!matchesTrip && !matchesJobOrder) return trip;
+      return {
+        ...trip,
+        tripStatus: 'unsuccessful',
+        completedReason: 'Unsuccessful Delivery',
+        completedAt: new Date().toLocaleString()
+      };
+    }));
   }
 
   function undoDoneEvent(id) {
@@ -625,6 +634,7 @@ export default function App() {
                 trips={trips}
                 events={events}
                 onMarkDone={markEventDone}
+                onMarkDeliveryDone={markDeliveryDone}
                 onStartContract={markEventStarted}
                 doneDeliveries={doneDeliveries}
                 onUndoDone={undoDoneEvent}
@@ -652,6 +662,7 @@ export default function App() {
                 onNavigate={setCurrentPage}
                 events={events}
                 onMarkDone={markEventDone}
+                onMarkDeliveryDone={markDeliveryDone}
                 onStartContract={markEventStarted}
                 doneDeliveries={doneDeliveries}
                 onUndoDone={undoDoneEvent}
@@ -668,6 +679,7 @@ export default function App() {
                 adminNotifications={adminNotifications}
                 setAdminNotifications={setAdminNotifications}
                 trucks={trucks}
+                trips={trips}
               />
             )
           ) : currentPage === 'calendar' ? (
@@ -691,7 +703,31 @@ export default function App() {
           ) : currentPage === 'rfidkiosk' ? (
             <RfidKiosk onBackToLogin={() => setCurrentPage('dashboard')} />
           ) : currentPage === 'adminadddelete' ? (
-            <AdminAddDelete onLogout={handleLogout} />
+            <AdminAddDelete
+              onLogout={handleLogout}
+              events={events}
+              onMarkDone={markEventDone}
+              onStartContract={markEventStarted}
+              doneDeliveries={doneDeliveries}
+              onUndoDone={undoDoneEvent}
+              unsuccessfulDeliveries={unsuccessfulDeliveries}
+              onMarkUnsuccessful={markEventUnsuccessful}
+              onUndoUnsuccessful={undoUnsuccessfulEvent}
+              onAddEvent={addEvent}
+              onOpenJobOrderModal={openJobOrderModal}
+              jobOrders={jobOrders}
+              onRemoveEvent={removeEvent}
+              onRemoveDoneEvent={removeDoneEvent}
+              onRemoveUnsuccessfulEvent={removeUnsuccessfulEvent}
+              onRemoveJobOrder={removeJobOrder}
+              adminNotifications={adminNotifications}
+              setAdminNotifications={setAdminNotifications}
+              trips={trips}
+              onAddTrip={addTrip}
+              trucks={trucks}
+              onUpdateJobOrderStatus={updateJobOrderStatus}
+              employees={employees}
+            />
           ) : null
         )
       ) : isRfidKioskMode || role === 'rfidkiosk' ? (

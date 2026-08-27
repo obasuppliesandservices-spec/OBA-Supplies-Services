@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import EventModal from './EventModal';
 import CompletedDeliveries from './CompletedDeliveries';
+import { getVisibleJobOrderEvents } from '../deliveryUtils';
 
-function StatCard({ title, value, onView }) {
+function StatCard({ title, value, icon = '👥', onView }) {
   return (
     <div className="stat-card" style={{ position: 'relative', padding: '16px' }}>
       {onView && (
@@ -16,14 +17,14 @@ function StatCard({ title, value, onView }) {
           View
         </span>
       )}
-      <div className="stat-icon">👥</div>
+      <div className="stat-icon">{icon}</div>
       <div className="stat-value">{value}</div>
       <div className="stat-title">{title}</div>
     </div>
   );
 }
 
-export default function Dashboard({ user, onLogout, onNavigate, events, onMarkDone, onStartContract, doneDeliveries = [], onUndoDone, unsuccessfulDeliveries = [], onMarkUnsuccessful, onUndoUnsuccessful, onAddEvent, onOpenJobOrderModal, jobOrders = [], onRemoveEvent, onRemoveDoneEvent, onRemoveUnsuccessfulEvent, onRemoveJobOrder, adminNotifications, setAdminNotifications }) {
+export default function Dashboard({ user, onLogout, onNavigate, events, onMarkDone, onMarkDeliveryDone = onMarkDone, onStartContract, doneDeliveries = [], onUndoDone, unsuccessfulDeliveries = [], onMarkUnsuccessful, onUndoUnsuccessful, onAddEvent, onOpenJobOrderModal, jobOrders = [], onRemoveEvent, onRemoveDoneEvent, onRemoveUnsuccessfulEvent, onRemoveJobOrder, adminNotifications, setAdminNotifications, trips = [] }) {
   const [modalOpen, setModalOpen] = useState(false);
   const [modalView, setModalView] = useState(null); // { title, items, onUndo }
   const [showNotifications, setShowNotifications] = useState(false);
@@ -41,6 +42,12 @@ export default function Dashboard({ user, onLogout, onNavigate, events, onMarkDo
 
   const endedJobOrdersCount = (doneDeliveries || []).filter(delivery => delivery?.status === 'completion').length;
   const completedDeliveriesCount = (doneDeliveries || []).filter(delivery => delivery?.status !== 'completion').length;
+  const dashboardJobOrderEvents = getVisibleJobOrderEvents({
+    events,
+    doneDeliveries,
+    unsuccessfulDeliveries,
+    trips
+  });
 
   const handleAddEvent = (eventData) => {
     onAddEvent(eventData);
@@ -293,7 +300,7 @@ export default function Dashboard({ user, onLogout, onNavigate, events, onMarkDo
                 <h3>Deliveries</h3>
                 
               </div>
-              <div className="meeting-list">
+              <div className="meeting-list deliveries-list">
                 {events.filter(event => event.status === 'trip').length === 0 ? (
                   <p style={{ padding: '12px' }}>No Deliveries scheduled.</p>
                 ) : (
@@ -310,7 +317,7 @@ export default function Dashboard({ user, onLogout, onNavigate, events, onMarkDo
                       <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
                         <span className="meeting-time">{event.time}</span>
                         <span className="meeting-date">📅{new Date(event.date).toLocaleDateString()}</span>
-                        <button className="btn-remove" onClick={() => onMarkDone(event.id)}>Done</button>
+                        <button className="btn-remove" onClick={() => onMarkDeliveryDone(event.id)}>Done</button>
                         <button
                           className="btn-unsuccessful"
                           onClick={() => onMarkUnsuccessful && onMarkUnsuccessful(event.id)}
@@ -334,11 +341,11 @@ export default function Dashboard({ user, onLogout, onNavigate, events, onMarkDo
                 <h3>Job Orders</h3>
               </div>
 
-              <div className="meeting-list">
-                {events.filter(event => ['active', 'started', 'completion'].includes(event.status)).length === 0 ? (
+              <div className="meeting-list job-orders-list">
+                {dashboardJobOrderEvents.length === 0 ? (
                   <p style={{ padding: '12px' }}>No Job Order Scheduled.</p>
                 ) : (
-                  events.filter(event => ['active', 'started', 'completion'].includes(event.status)).map(event => (
+                  dashboardJobOrderEvents.map(event => (
                     <div key={event.id} className="meeting-item">
                       <div style={{ display: 'flex', flexDirection: 'column' }}>
                         <span className="meeting-name">{event.name}</span>
