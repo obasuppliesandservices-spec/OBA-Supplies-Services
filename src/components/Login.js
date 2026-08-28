@@ -152,23 +152,6 @@ export default function Login({ onLogin, onOpenRfidKiosk }) {
           flex-direction: column;
         }
 
-        .forgot-password {
-          align-self: flex-end;
-          margin-top: 8px;
-          border: none;
-          background: transparent;
-          color: #1976d2;
-          font-size: 13px;
-          font-weight: 500;
-          text-decoration: underline;
-          cursor: pointer;
-          padding: 0;
-        }
-
-        .forgot-password:hover {
-          color: #0d47a1;
-        }
-
         @media (max-width: 768px) {
           .login-page {
             flex-direction: column !important;
@@ -299,13 +282,6 @@ export default function Login({ onLogin, onOpenRfidKiosk }) {
                   autoComplete="new-password"
                   required
                 />
-                <button
-                  type="button"
-                  className="forgot-password"
-                  onClick={() => setError('Password reset is not available yet.')}
-                >
-                  Forgot Password?
-                </button>
               </div>
             )}
 
@@ -342,6 +318,7 @@ export default function Login({ onLogin, onOpenRfidKiosk }) {
                 {isSignUp ? 'Sign Up' : 'Sign In'}
               </button>
             </div>
+              
           </form>
 
           <button

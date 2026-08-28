@@ -48,6 +48,15 @@ export default function Dashboard({ user, onLogout, onNavigate, events, onMarkDo
     unsuccessfulDeliveries,
     trips
   });
+  const currentDeliveries = (events || [])
+    .filter(event => event.status === 'trip')
+    .sort((firstEvent, secondEvent) => {
+      const firstDate = new Date(`${firstEvent.date || ''} ${firstEvent.time || ''}`).getTime();
+      const secondDate = new Date(`${secondEvent.date || ''} ${secondEvent.time || ''}`).getTime();
+      const firstTimestamp = Number.isNaN(firstDate) ? Number(firstEvent.id) || 0 : firstDate;
+      const secondTimestamp = Number.isNaN(secondDate) ? Number(secondEvent.id) || 0 : secondDate;
+      return secondTimestamp - firstTimestamp;
+    });
 
   const handleAddEvent = (eventData) => {
     onAddEvent(eventData);
@@ -322,10 +331,10 @@ export default function Dashboard({ user, onLogout, onNavigate, events, onMarkDo
                 
               </div>
               <div className="meeting-list deliveries-list">
-                {events.filter(event => event.status === 'trip').length === 0 ? (
+                  {currentDeliveries.length === 0 ? (
                   <p style={{ padding: '12px' }}>No Deliveries scheduled.</p>
                 ) : (
-                  events.filter(event => event.status === 'trip').map(event => (
+                    currentDeliveries.map(event => (
                     <div key={event.id} className="meeting-item">
                       <div style={{ display: 'flex', flexDirection: 'column' }}>
                         <span className="meeting-name">{event.name}</span>
