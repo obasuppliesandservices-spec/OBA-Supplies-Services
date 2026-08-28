@@ -134,6 +134,8 @@ export default function JobOrder({ user, onLogout, onNavigate, jobOrders, onAddJ
     }
   };
 
+  const pendingJobOrders = (jobOrders || []).filter(jobOrder => jobOrder.status === 'pending' || !jobOrder.status);
+
   return (
     <div className="dashboard-page">
       <aside className="sidebar-left">
@@ -167,10 +169,10 @@ export default function JobOrder({ user, onLogout, onNavigate, jobOrders, onAddJ
         </nav>
       </aside>
 
-      <main className="dashboard-main">
+      <main className="dashboard-main job-order-main">
 
         <div className="dashboard-header-bar"></div>
-        <div className="dashboard-content">
+        <div className="dashboard-content job-order-content">
           <header className="dashboard-header">
             <h1>Orders and Job Order</h1>
             <div className="header-right">
@@ -188,13 +190,13 @@ export default function JobOrder({ user, onLogout, onNavigate, jobOrders, onAddJ
 
 
 
-          <section className="meetings-section">
+          <section className="meetings-section current-orders-section">
             <div className="meetings-header">
               <h3>Current Orders</h3>
             </div>
-            {jobOrders.length === 0 ? (
-              <div className="empty-inventory" style={{ padding: '40px 20px', textAlign: 'center' }}>
-                <p> No Orders and Job Orders Created yet.</p>
+            {pendingJobOrders.length === 0 ? (
+              <div className="empty-inventory current-orders-empty" style={{ padding: '40px 20px', textAlign: 'center' }}>
+                <p>No Orders and Job Orders Created yet.</p>
                 <p style={{ fontSize: '12px', color: '#bbb' }}>Orders will appear here</p>
               </div>
 
@@ -204,7 +206,7 @@ export default function JobOrder({ user, onLogout, onNavigate, jobOrders, onAddJ
                 gridTemplateColumns: 'repeat(1, 1fr)',
                 gap: '24px'
               }}>
-                {jobOrders.filter(jobOrder => jobOrder.status === 'pending' || !jobOrder.status).map((jobOrder, index) => (
+                {pendingJobOrders.map((jobOrder, index) => (
                   <div
                     key={jobOrder.id}
                     className="order-card"
@@ -212,20 +214,20 @@ export default function JobOrder({ user, onLogout, onNavigate, jobOrders, onAddJ
                       backgroundColor: 'white',
                       borderRadius: '12px',
                       padding: '24px',
-                      border: index === jobOrders.length - 1 ? '3px solid var(--green)' : '1px solid #e0e0e0',
+                      border: index === pendingJobOrders.length - 1 ? '3px solid var(--green)' : '1px solid #e0e0e0',
                       display: 'flex',
                       gap: '20px',
                       alignItems: 'flex-start',
-                      boxShadow: index === jobOrders.length - 1 ? '0 2px 8px rgba(5, 150, 105, 0.15)' : '0 1px 3px rgba(0, 0, 0, 0.08)',
+                      boxShadow: index === pendingJobOrders.length - 1 ? '0 2px 8px rgba(5, 150, 105, 0.15)' : '0 1px 3px rgba(0, 0, 0, 0.08)',
                       transition: 'all 0.3s ease'
                     }}
                     onMouseEnter={(e) => {
-                      if (index !== jobOrders.length - 1) {
+                      if (index !== pendingJobOrders.length - 1) {
                         e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.1)';
                       }
                     }}
                     onMouseLeave={(e) => {
-                      if (index !== jobOrders.length - 1) {
+                      if (index !== pendingJobOrders.length - 1) {
                         e.currentTarget.style.boxShadow = '0 1px 3px rgba(0, 0, 0, 0.08)';
                       }
                     }}

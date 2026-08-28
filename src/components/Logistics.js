@@ -915,6 +915,21 @@ export default function Logistics({ user, onLogout, onNavigate, events, onMarkDo
   const currentMonthIndex = new Date().getMonth();
   const currentTrendPoint = endedTrendPoints[currentMonthIndex];
 
+  const endedOrdersChartMonths = endedJobOrderTrend;
+  const endedOrdersChartMax = Math.max(200, ...endedOrdersChartMonths.map(month => month.value || 0));
+  const endedOrdersChartWidth = 900;
+  const endedOrdersChartHeight = 220;
+  const endedOrdersChartPadding = { top: 16, right: 20, bottom: 30, left: 42 };
+  const endedOrdersChartInnerWidth = endedOrdersChartWidth - endedOrdersChartPadding.left - endedOrdersChartPadding.right;
+  const endedOrdersChartInnerHeight = endedOrdersChartHeight - endedOrdersChartPadding.top - endedOrdersChartPadding.bottom;
+  const endedOrdersChartPoints = (values) => values.map((value, index) => {
+    const x = endedOrdersChartPadding.left + (index * endedOrdersChartInnerWidth) / Math.max(values.length - 1, 1);
+    const y = endedOrdersChartPadding.top + endedOrdersChartInnerHeight - (value / endedOrdersChartMax) * endedOrdersChartInnerHeight;
+    return { x, y, value };
+  });
+  const endedOrdersActualPoints = endedOrdersChartPoints(endedOrdersChartMonths.map(month => Math.max(0, month.value || 0)));
+  const endedOrdersActualLine = endedOrdersActualPoints.map(point => `${point.x},${point.y}`).join(' ');
+
   const graphBottom = 245;
   const graphTop = 25;
   const graphHeight = graphBottom - graphTop;
@@ -1287,36 +1302,46 @@ export default function Logistics({ user, onLogout, onNavigate, events, onMarkDo
                   </div>
                   <strong>{endedJobOrdersCount}</strong>
                 </div>
-                <div className="ended-orders-trend-chart">
-                  <svg viewBox={`0 0 ${endedTrendWidth} ${endedTrendHeight}`} role="img" aria-label={`Ended job orders by month for ${currentYear}`} preserveAspectRatio="none">
+                <div className="ended-orders-trend-chart" style={{ width: '100%', overflow: 'hidden', padding: '0 0 8px' }}>
+                  <svg viewBox={`0 0 ${endedOrdersChartWidth} ${endedOrdersChartHeight}`} role="img" aria-label={`Ended job orders by month for ${currentYear}`} preserveAspectRatio="xMidYMid meet" style={{ width: '100%', height: '220px', display: 'block' }}>
                     <defs>
-                      <linearGradient id="logisticsEndedOrdersArea" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="#54d98b" stopOpacity="0.42" />
-                        <stop offset="100%" stopColor="#54d98b" stopOpacity="0.03" />
+                      <linearGradient id="logisticsEndedOrdersLineBlue" x1="0" x2="1" y1="0" y2="0">
+                        <stop offset="0%" stopColor="#2f7ef7" />
+                        <stop offset="100%" stopColor="#5ab4ff" />
                       </linearGradient>
                     </defs>
-                    {[0, 0.33, 0.66, 1].map((position, index) => {
-                      const y = endedTrendBottom - position * (endedTrendBottom - endedTrendTop);
-                      return <line key={`logistics-trend-grid-${index}`} x1={endedTrendLeft} x2={endedTrendWidth - endedTrendRight} y1={y} y2={y} stroke="#edf4ef" strokeWidth="1" />;
+
+                    {[0, 50, 100, 150, 200].map((tick) => {
+                      const y = endedOrdersChartPadding.top + endedOrdersChartInnerHeight - (tick / endedOrdersChartMax) * endedOrdersChartInnerHeight;
+                      return (
+                        <g key={`logistics-tick-${tick}`}>
+                          <line x1={endedOrdersChartPadding.left} x2={endedOrdersChartWidth - endedOrdersChartPadding.right} y1={y} y2={y} stroke="#e8eef5" strokeWidth="1" />
+                          <text x={8} y={y + 4} fontSize="11" fill="#7b8795" fontWeight="600">{tick}</text>
+                        </g>
+                      );
                     })}
-                    {currentTrendPoint && (
-                      <line x1={currentTrendPoint.x} x2={currentTrendPoint.x} y1="12" y2={endedTrendBottom} stroke="#54d98b" strokeWidth="2" strokeDasharray="4 5" />
-                    )}
-                    <polygon points={endedTrendArea} fill="url(#logisticsEndedOrdersArea)" />
-                    <polyline points={endedTrendLine} fill="none" stroke="#54d98b" strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" />
-                    {endedTrendPoints.map((point, index) => (
-                      <circle key={`logistics-trend-point-${index}`} cx={point.x} cy={point.y} r={index === currentMonthIndex ? 8 : 3} fill="#ffffff" stroke="#43c979" strokeWidth={index === currentMonthIndex ? 3 : 2}>
-                        <title>{`${point.label}: ${point.value} ended job orders`}</title>
-                      </circle>
-                    ))}
-                    {currentTrendPoint && (
-                      <g>
-                        <rect x={Math.min(currentTrendPoint.x + 12, endedTrendWidth - 112)} y={Math.max(currentTrendPoint.y - 42, 4)} width="92" height="34" rx="7" fill="#f4fff7" stroke="#8de2aa" />
-                        <text x={Math.min(currentTrendPoint.x + 58, endedTrendWidth - 66)} y={Math.max(currentTrendPoint.y - 21, 25)} textAnchor="middle" fill="#34483a" fontSize="13" fontWeight="700">{currentTrendPoint.value} orders</text>
+
+                    {endedOrdersActualPoints.map((point, index) => (
+                      <g key={`logistics-month-label-${index}`}>
+                        <line x1={point.x} x2={point.x} y1={endedOrdersChartPadding.top + endedOrdersChartInnerHeight} y2={endedOrdersChartPadding.top + endedOrdersChartInnerHeight + 5} stroke="#c8d2d9" strokeWidth="1" />
+                        <text x={point.x} y={endedOrdersChartHeight - 8} textAnchor="middle" fontSize="11" fill="#7b8795" fontWeight="600">{endedOrdersChartMonths[index]?.label || ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][index]}</text>
                       </g>
-                    )}
-                    {endedTrendPoints.map((point, index) => (
-                      <text key={`logistics-trend-label-${index}`} x={point.x} y="228" textAnchor="middle" fill={index === currentMonthIndex ? '#43c979' : '#9da8a0'} fontSize="11" fontWeight={index === currentMonthIndex ? '700' : '500'}>{point.label}</text>
+                    ))}
+
+                    <polyline
+                      points={endedOrdersActualLine}
+                      fill="none"
+                      stroke="url(#logisticsEndedOrdersLineBlue)"
+                      strokeWidth="3"
+                      strokeLinejoin="round"
+                      strokeLinecap="round"
+                    />
+
+                    {endedOrdersActualPoints.map((point, index) => (
+                      <g key={`logistics-actual-dot-${index}`}>
+                        <circle cx={point.x} cy={point.y} r="4.5" fill="#ffffff" stroke="#2f7ef7" strokeWidth="2.5" />
+                        <title>{`${endedOrdersChartMonths[index]?.label || 'Month'}: ${point.value} ended job orders`}</title>
+                      </g>
                     ))}
                   </svg>
                 </div>
