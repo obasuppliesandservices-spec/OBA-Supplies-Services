@@ -4,9 +4,32 @@ import AboutUs from './AboutUs';
 import Service from './Service';
 import Product from './Product';
 import Orderspage from './Orderspage';
+import toast from 'react-hot-toast';
 
-export default function WelcomePage({ onSignInClick, user }) {
+export default function WelcomePage({ onSignInClick, user, onAddFeedback }) {
   const [currentPage, setCurrentPage] = useStickyState('home', 'welcome_currentPage');
+  const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
+  const [feedbackText, setFeedbackText] = useState('');
+
+  const handleSendFeedback = () => {
+    if (!feedbackText.trim()) {
+      toast.error('Please enter your feedback before sending.');
+      return;
+    }
+
+    if (onAddFeedback) {
+      onAddFeedback({
+        id: Date.now(),
+        customerName: user?.name || 'Guest Customer',
+        message: feedbackText.trim(),
+        date: new Date().toLocaleString()
+      });
+    }
+
+    toast.success('Thank you! Your feedback has been sent to the admin.');
+    setFeedbackText('');
+    setIsFeedbackOpen(false);
+  };
 
   const renderContent = () => {
     if (currentPage === 'about') return <AboutUs />;
@@ -150,17 +173,67 @@ export default function WelcomePage({ onSignInClick, user }) {
           
           <section className="customer-homepage-contact">
             <p>Have a question or need a custom order? We’re here to help!</p>
-            
-              <span role="img" aria-label="email">📧</span> info@obasupplies.com {' '}
+
+            <div>
+              <span role="img" aria-label="email">📧</span> obasuppliesandservices@gmail.com {' '}
               | {' '}
-              <span role="img" aria-label="phone">📞</span> (555) 123-4567 {' '}
-                
+              <span role="img" aria-label="phone">📞</span> (555) 123-4567
+            </div>
 
-
+            <button
+              type="button"
+              className="contact-button"
+              onClick={() => setIsFeedbackOpen(true)}
+            >
+              Send Feedback
+            </button>
           </section>
-          <section className="customer-homepage-contact">
-          <button className="contact-button"> Contact Us</button>
-            </section>
+
+          {isFeedbackOpen && (
+            <div className="feedback-modal-backdrop" onClick={() => setIsFeedbackOpen(false)}>
+              <div className="feedback-modal" onClick={(e) => e.stopPropagation()}>
+                <div className="feedback-modal-header">
+                  <h3>Send Feedback</h3>
+                  <button
+                    type="button"
+                    className="feedback-close-btn"
+                    onClick={() => setIsFeedbackOpen(false)}
+                    aria-label="Close feedback form"
+                  >
+                    ×
+                  </button>
+                </div>
+
+                <textarea
+                  className="feedback-textarea"
+                  value={feedbackText}
+                  onChange={(e) => setFeedbackText(e.target.value)}
+                  placeholder="Tell us how we can improve..."
+                  rows={6}
+                />
+
+                <div className="feedback-modal-actions">
+                  <button
+                    type="button"
+                    className="feedback-send-btn"
+                    onClick={handleSendFeedback}
+                  >
+                    Send
+                  </button>
+                  <button
+                    type="button"
+                    className="feedback-cancel-btn"
+                    onClick={() => {
+                      setFeedbackText('');
+                      setIsFeedbackOpen(false);
+                    }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
           <img
             src="/images/man.jpg"
@@ -204,7 +277,7 @@ export default function WelcomePage({ onSignInClick, user }) {
             }}
           >
             <img src="/logo.png" alt="OBA logo" className="homepage-logo" />
-            OBA SUPPLIES
+            OBA Supplies & Services
           </button>
         </div>
 

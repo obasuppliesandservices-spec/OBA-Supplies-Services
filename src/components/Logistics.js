@@ -615,7 +615,13 @@ export default function Logistics({ user, onLogout, onNavigate, events, onMarkDo
   const [selectedQrItem, setSelectedQrItem] = useState(null);
 
   const completedTripIds = new Set((tripHistory || []).map(entry => entry.id));
-  const activeTrips = (trips || []).filter(trip => !completedTripIds.has(trip.id) && trip.tripStatus !== 'unsuccessful');
+  const activeTrips = (trips || [])
+    .filter(trip => !completedTripIds.has(trip.id) && trip.tripStatus !== 'unsuccessful')
+    .sort((a, b) => {
+      const timeA = new Date(a.createdDate || a.id || 0).getTime();
+      const timeB = new Date(b.createdDate || b.id || 0).getTime();
+      return timeB - timeA;
+    });
 
   // Deliveries Process State
   const [processingJobOrder, setProcessingJobOrder] = useFirebaseSync('active_logistics_session/processingJobOrder', null);

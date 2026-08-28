@@ -213,7 +213,13 @@ export default function TripManager({ user, onLogout, onNavigate, jobOrders = []
   }, [showModal, employees, trips, newTrip.driver, newTrip.pahintate]);
 
   const completedTripIds = new Set((tripHistory || []).map(entry => entry.id));
-  const activeTrips = (trips || []).filter(trip => !completedTripIds.has(trip.id) && trip.tripStatus !== 'unsuccessful');
+  const activeTrips = (trips || [])
+    .filter(trip => !completedTripIds.has(trip.id) && trip.tripStatus !== 'unsuccessful')
+    .sort((a, b) => {
+      const timeA = new Date(a.createdDate || a.id || 0).getTime();
+      const timeB = new Date(b.createdDate || b.id || 0).getTime();
+      return timeB - timeA;
+    });
 
   const handleTruckSelectChange = (e) => {
     const selectedId = e.target.value;

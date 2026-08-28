@@ -1,7 +1,7 @@
 import React from 'react';
 import Homepage from './homepage';
 
-export default function Customer({ user, onLogout, cart, onAddToCart, onRemoveFromCart, onCheckout, onSubmitOrder, notifications, setNotifications }) {
+export default function Customer({ user, onLogout, cart, onAddToCart, onRemoveFromCart, onCheckout, onSubmitOrder, notifications, setNotifications, onAddFeedback }) {
   return (
     <div style={{ minHeight: '100vh' }}>
       <Homepage
@@ -15,6 +15,7 @@ export default function Customer({ user, onLogout, cart, onAddToCart, onRemoveFr
         onSubmitOrder={onSubmitOrder}
         notifications={notifications}
         setNotifications={setNotifications}
+        onAddFeedback={onAddFeedback}
       />
     </div>
   );

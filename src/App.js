@@ -597,6 +597,7 @@ export default function App() {
         <WelcomePage
           onSignInClick={() => setShowLogin(true)}
           user={user}
+          onAddFeedback={addFeedback}
         />
         /*
         <Homepage 
@@ -623,6 +624,7 @@ export default function App() {
             onSubmitOrder={handleSubmitOrder}
             notifications={activeNotifications}
             setNotifications={updateActiveNotifications}
+            onAddFeedback={addFeedback}
           />
         ) : (
           currentPage === 'dashboard' ? (

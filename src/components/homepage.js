@@ -21,12 +21,14 @@ const SERVICE_CONFIG = {
   'Professional Mechanical Engineer Consultancy': { manpower: 1, contractLength: '3 Months' }
 };
 
-export default function Homepage({ onLoginClick, onLogout, isLoggedIn, user, cart, onAddToCart, onViewCart, onRemoveFromCart, showCart, onContinueShopping, onClearCart, onCheckout, onSubmitOrder, notifications, setNotifications }) {
+export default function Homepage({ onLoginClick, onLogout, isLoggedIn, user, cart, onAddToCart, onViewCart, onRemoveFromCart, showCart, onContinueShopping, onClearCart, onCheckout, onSubmitOrder, notifications, setNotifications, onAddFeedback }) {
   const [currentPage, setCurrentPage] = useStickyState('home', 'homepage_currentPage');
   const [showBlankCart, setShowBlankCart] = useState(false);
   const [showOrderDetails, setShowOrderDetails] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [selectedNotification, setSelectedNotification] = useState(null);
+  const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
+  const [feedbackText, setFeedbackText] = useState('');
   const [orderDetails, setOrderDetails] = useState([]);
   const [isLoadingCheckout, setIsLoadingCheckout] = useState(false);
   const [isLoadingPlaceOrder, setIsLoadingPlaceOrder] = useState(false);
@@ -142,6 +144,26 @@ export default function Homepage({ onLoginClick, onLogout, isLoggedIn, user, car
   const handleUpdateCustomerInfo = (field, value) => {
     setCustomerInfo({ ...customerInfo, [field]: value });
   }
+
+  const handleSendFeedback = () => {
+    if (!feedbackText.trim()) {
+      toast.error('Please enter your feedback before sending.');
+      return;
+    }
+
+    if (onAddFeedback) {
+      onAddFeedback({
+        id: Date.now(),
+        customerName: user?.name || 'Customer',
+        message: feedbackText.trim(),
+        date: new Date().toLocaleString()
+      });
+    }
+
+    toast.success('Thank you! Your feedback has been sent to the admin.');
+    setFeedbackText('');
+    setIsFeedbackOpen(false);
+  };
 
   const handleFileChange = (field, file) => {
     if (file) {
@@ -1108,17 +1130,66 @@ export default function Homepage({ onLoginClick, onLogout, isLoggedIn, user, car
           <section className="customer-homepage-contact">
             <p>Have a question or need a custom order? We’re here to help!</p>
             
-              <span role="img" aria-label="email">📧</span> info@obasupplies.com {' '}
+            <div>
+              <span role="img" aria-label="email">📧</span> obasuppliesandservices@gmail.com {' '}
               | {' '}
-              <span role="img" aria-label="phone">📞</span> (555) 123-4567 {' '}
-                
+              <span role="img" aria-label="phone">📞</span> (555) 123-4567
+            </div>
 
+            <button
+              type="button"
+              className="contact-button"
+              onClick={() => setIsFeedbackOpen(true)}
+            >
+              Send Feedback
+            </button>
+          </section>
 
-          </section>
-          <section className="customer-homepage-contact">
-            <button className="contact-button"> Contact Us</button>
-          </section>
-          
+          {isFeedbackOpen && (
+            <div className="feedback-modal-backdrop" onClick={() => setIsFeedbackOpen(false)}>
+              <div className="feedback-modal" onClick={(e) => e.stopPropagation()}>
+                <div className="feedback-modal-header">
+                  <h3>Send Feedback</h3>
+                  <button
+                    type="button"
+                    className="feedback-close-btn"
+                    onClick={() => setIsFeedbackOpen(false)}
+                    aria-label="Close feedback form"
+                  >
+                    ×
+                  </button>
+                </div>
+
+                <textarea
+                  className="feedback-textarea"
+                  value={feedbackText}
+                  onChange={(e) => setFeedbackText(e.target.value)}
+                  placeholder="Tell us how we can improve..."
+                  rows={6}
+                />
+
+                <div className="feedback-modal-actions">
+                  <button
+                    type="button"
+                    className="feedback-send-btn"
+                    onClick={handleSendFeedback}
+                  >
+                    Send
+                  </button>
+                  <button
+                    type="button"
+                    className="feedback-cancel-btn"
+                    onClick={() => {
+                      setFeedbackText('');
+                      setIsFeedbackOpen(false);
+                    }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
           <img
             src="/images/man.jpg"
@@ -1152,7 +1223,7 @@ export default function Homepage({ onLoginClick, onLogout, isLoggedIn, user, car
             style={{ color: 'white', textDecoration: 'none', fontSize: '15px', background: 'transparent', border: 'none', cursor: 'pointer', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '8px' }}
           >
             <img src="/logo.png" alt="OBA logo" className="homepage-logo" />
-            OBA Supplies&Services
+            OBA Supplies & Services
           </button>
         </div>
 

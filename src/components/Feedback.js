@@ -109,12 +109,10 @@ function FeedbackCard({ feedback, onReply, adminReplies }) {
 }
 
 export default function Feedback({ user, onLogout, onNavigate, feedbacks, onAddFeedback, onOpenJobOrderModal }) {
-  const [emailInput, setEmailInput] = useState('');
-  const [showFeedbacks, setShowFeedbacks] = useState(false);
+  const [showFeedbacks, setShowFeedbacks] = useState(true);
   const [adminReplies, setAdminReplies] = useState({});
 
-  // Sample feedbacks
-  const sampleFeedbacks = [
+  const displayedFeedbacks = feedbacks && feedbacks.length > 0 ? feedbacks : [
     {
       id: 1,
       customerName: 'John Santos',
@@ -147,15 +145,16 @@ export default function Feedback({ user, onLogout, onNavigate, feedbacks, onAddF
     }
   ];
 
-  const handleEmailSubmit = (e) => {
-    e.preventDefault();
-    if (emailInput.toLowerCase() === 'OBASuppliesandServices@gmail.com'.toLowerCase()) {
-      setShowFeedbacks(true);
-    } else {
-      alert('Please enter the correct email address.');
-      setShowFeedbacks(false);
+  const visibleFeedbacks = [...displayedFeedbacks].sort((a, b) => {
+    const timeA = new Date(a.date).getTime();
+    const timeB = new Date(b.date).getTime();
+
+    if (Number.isNaN(timeA) || Number.isNaN(timeB)) {
+      return 0;
     }
-  };
+
+    return timeB - timeA;
+  });
 
   const handleReply = (feedbackId, replyText) => {
     setAdminReplies({
@@ -214,53 +213,13 @@ export default function Feedback({ user, onLogout, onNavigate, feedbacks, onAddF
             </div>
           </header>
 
-          <section className="meetings-section">
-            <div className="meetings-header">
-              <h3>Access Customer Feedbacks</h3>
-            </div>
-            <form onSubmit={handleEmailSubmit} style={{ marginBottom: '20px' }}>
-              <div style={{ display: 'flex', gap: '10px', marginBottom: '10px' }}>
-                <input
-                  type="email"
-                  value={emailInput}
-                  onChange={(e) => setEmailInput(e.target.value)}
-                  placeholder="Enter admin email to view feedbacks"
-                  style={{
-                    flex: 1,
-                    padding: '10px',
-                    borderRadius: '6px',
-                    border: '1px solid #e8e8e8',
-                    fontSize: '14px'
-                  }}
-                />
-                <button
-                  type="submit"
-                  style={{
-                    padding: '10px 20px',
-                    backgroundColor: '#2196F3',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '6px',
-                    cursor: 'pointer',
-                    fontWeight: 'bold'
-                  }}
-                >
-                  Access Feedbacks
-                </button>
-              </div>
-              <small style={{ color: '#999' }}>
-                Hint: Use OBASuppliesandServices@gmail.com
-              </small>
-            </form>
-          </section>
-
           {showFeedbacks && (
             <section className="meetings-section">
               <div className="meetings-header">
-                <h3>Customer Feedbacks for {emailInput}</h3>
+                <h3>Customer Feedbacks</h3>
               </div>
               <div style={{ marginTop: '15px' }}>
-                {sampleFeedbacks.map((feedback) => (
+                {visibleFeedbacks.map((feedback) => (
                   <FeedbackCard
                     key={feedback.id}
                     feedback={feedback}
@@ -275,7 +234,7 @@ export default function Feedback({ user, onLogout, onNavigate, feedbacks, onAddF
           {!showFeedbacks && (
             <section className="meetings-section" style={{ textAlign: 'center', padding: '40px 20px' }}>
               <p style={{ color: '#999', fontSize: '16px' }}>
-                Enter the admin email address above to view and respond to customer feedbacks.
+                No customer feedback available.
               </p>
             </section>
           )}
