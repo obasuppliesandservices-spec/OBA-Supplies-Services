@@ -106,8 +106,8 @@ export default function AdminAddDelete({ onLogout, ...dashboardProps }) {
           <button
             onClick={onLogout}
             style={{
-              backgroundColor: '#ffffff',
-              color: '#0c882f',
+              backgroundColor: 'rgba(255,255,255,0.2)',
+              color: 'white',
               border: 'none',
               padding: '8px 16px',
               borderRadius: '6px',
@@ -115,8 +115,8 @@ export default function AdminAddDelete({ onLogout, ...dashboardProps }) {
               fontSize: '13px',
               transition: 'background-color 0.2s'
             }}
-            onMouseEnter={(e) => e.target.style.backgroundColor = '#f1fff4'}
-            onMouseLeave={(e) => e.target.style.backgroundColor = '#ffffff'}
+            onMouseEnter={(e) => e.target.style.backgroundColor = 'rgba(255,255,255,0.3)'}
+            onMouseLeave={(e) => e.target.style.backgroundColor = 'rgba(255,255,255,0.2)'}
           >
             Logout
           </button>

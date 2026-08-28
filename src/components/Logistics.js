@@ -1362,6 +1362,7 @@ export default function Logistics({ user, onLogout, onNavigate, events, onMarkDo
               onLogout={onLogout}
               onNavigate={onNavigate}
               jobOrders={jobOrders}
+              events={events}
               trips={trips}
               doneDeliveries={doneDeliveries}
               unsuccessfulDeliveries={unsuccessfulDeliveries}

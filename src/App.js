@@ -693,7 +693,7 @@ export default function App() {
           ) : currentPage === 'trucks' ? (
             <TruckManagement user={user} onLogout={handleLogout} onNavigate={setCurrentPage} trucks={trucks} onUpdateTrucks={setTrucks} />
           ) : currentPage === 'analytics' ? (
-            <ReportsAnalytics user={user} onLogout={handleLogout} onNavigate={setCurrentPage} jobOrders={jobOrders} trips={trips} doneDeliveries={doneDeliveries} unsuccessfulDeliveries={unsuccessfulDeliveries} trucks={trucks} />
+            <ReportsAnalytics user={user} onLogout={handleLogout} onNavigate={setCurrentPage} jobOrders={jobOrders} events={events} trips={trips} doneDeliveries={doneDeliveries} unsuccessfulDeliveries={unsuccessfulDeliveries} trucks={trucks} />
           ) : currentPage === 'joborder' ? (
             <JobOrder user={user} onLogout={handleLogout} onNavigate={setCurrentPage} jobOrders={jobOrders} onAddJobOrder={addJobOrder} onRejectOrder={rejectJobOrder} onProcessJobOrder={processJobOrder} />
           ) : currentPage === 'settings' ? (

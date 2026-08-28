@@ -17,9 +17,15 @@ export default function Login({ onLogin, onOpenRfidKiosk }) {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
+  const [isForgotPassword, setIsForgotPassword] = useState(false);
+  const [forgotStep, setForgotStep] = useState(1);
+  const [verificationCode, setVerificationCode] = useState('');
 
   const returnToSignIn = () => {
     setIsSignUp(false);
+    setIsForgotPassword(false);
+    setForgotStep(1);
+    setVerificationCode('');
     setCompany('');
     setName('');
     setSurname('');
@@ -27,6 +33,39 @@ export default function Login({ onLogin, onOpenRfidKiosk }) {
     setPassword('');
     setConfirmPassword('');
     setError('');
+  };
+
+  const openForgotPassword = () => {
+    setIsForgotPassword(true);
+    setForgotStep(1);
+    setPassword('');
+    setConfirmPassword('');
+    setError('');
+    setSuccessMessage('');
+  };
+
+  const handleForgotPasswordSubmit = (e) => {
+    e.preventDefault();
+    setError('');
+
+    if (forgotStep === 1) {
+      if (!email.trim()) {
+        setError('Enter your email address first.');
+        return;
+      }
+      setForgotStep(2);
+      setSuccessMessage('Verification sent. Enter the 6-digit code from your email.');
+      return;
+    }
+
+    if (forgotStep === 2) {
+      if (!/^\d{6}$/.test(verificationCode)) {
+        setError('Enter the 6-digit verification code.');
+        return;
+      }
+      setForgotStep(3);
+      setSuccessMessage('Code verified. Enter your new password.');
+    }
   };
 
   async function submit(e) {
@@ -215,13 +254,52 @@ export default function Login({ onLogin, onOpenRfidKiosk }) {
         <div className="login-card">
           <img src="/logo.png" alt="OBA Supplies&Services logo" className="login-brand-logo" />
           <h1 className="login-brand-name">OBA Supplies&Services</h1>
-          <h3>{isSignUp ? 'Create an Account' : 'Welcome Back'}</h3>
-          <p>{isSignUp ? 'Sign up to continue' : 'Please sign in to your account'}</p>
+          <h3>{isForgotPassword ? 'Reset Password' : isSignUp ? 'Create an Account' : 'Welcome Back'}</h3>
+          <p>{isForgotPassword ? `Step ${forgotStep} of 3` : isSignUp ? 'Sign up to continue' : 'Please sign in to your account'}</p>
           
           {error && <p style={{color: 'red', marginTop: '10px'}}>{error}</p>}
           {successMessage && <p style={{color: '#04ab0c', marginTop: '10px'}}>{successMessage}</p>}
           
-          <form onSubmit={submit} autoComplete="off">
+          <form onSubmit={isForgotPassword ? handleForgotPasswordSubmit : submit} autoComplete="off">
+            {isForgotPassword ? (
+              <>
+                {forgotStep === 1 && (
+                  <div className="form-group">
+                    <label>Enter Email: </label>
+                    <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Enter your email" autoComplete="email" required />
+                  </div>
+                )}
+                {forgotStep === 2 && (
+                  <div className="form-group">
+                    <label>Enter 6-Digit Code: </label>
+                    <input type="text" inputMode="numeric" value={verificationCode} onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="Enter 6-digit code" autoComplete="one-time-code" maxLength="6" required />
+                  </div>
+                )}
+                {forgotStep === 3 && (
+                  <>
+                    <div className="form-group">
+                      <label>Enter New Password: </label>
+                      <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Enter New Password" autoComplete="new-password" required />
+                    </div>
+                    <div className="form-group">
+                      <label>Confirm New Password: </label>
+                      <input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} placeholder="Confirm New Password" autoComplete="new-password" required />
+                    </div>
+                  </>
+                )}
+                <div className="form-row">
+                  <button className="btn-login" type="submit" onClick={forgotStep === 3 ? (e) => {
+                    if (password !== confirmPassword) {
+                      e.preventDefault();
+                      setError('Passwords do not match.');
+                    }
+                  } : undefined}>
+                    {forgotStep === 1 ? 'Send Verification Code' : forgotStep === 2 ? 'Verify Code' : 'Change Password'}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
             {isSignUp && (
               <>
                 <div className="form-group">
@@ -282,6 +360,11 @@ export default function Login({ onLogin, onOpenRfidKiosk }) {
                   autoComplete="new-password"
                   required
                 />
+                <span style={{ alignSelf: 'flex-end', marginTop: '8px', color: '#1976d2', fontSize: '13px', textDecoration: 'underline', cursor: 'pointer' }}>
+                  <button type="button" onClick={openForgotPassword} style={{ border: 'none', background: 'transparent', color: 'inherit', textDecoration: 'inherit', cursor: 'pointer', padding: 0, font: 'inherit' }}>
+                    Forgot Password?
+                  </button>
+                </span>
               </div>
             )}
 
@@ -318,12 +401,17 @@ export default function Login({ onLogin, onOpenRfidKiosk }) {
                 {isSignUp ? 'Sign Up' : 'Sign In'}
               </button>
             </div>
-              
+              </>
+            )}
           </form>
 
           <button
             type="button"
             onClick={() => {
+              if (isForgotPassword) {
+                returnToSignIn();
+                return;
+              }
               setIsSignUp(!isSignUp);
               setError('');
               setSuccessMessage('');
@@ -341,7 +429,7 @@ export default function Login({ onLogin, onOpenRfidKiosk }) {
               fontWeight: '600'
             }}
           >
-            {isSignUp ? 'Back to Sign In' : 'Create Account'}
+            {isForgotPassword ? 'Back to Sign In' : isSignUp ? 'Back to Sign In' : 'Create Account'}
           </button>
         </div>
       </div>

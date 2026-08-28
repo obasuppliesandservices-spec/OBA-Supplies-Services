@@ -63,6 +63,7 @@ export default function ReportsAnalytics({
   onLogout,
   onNavigate,
   jobOrders = [],
+  events = [],
   trips = [],
   doneDeliveries = [],
   unsuccessfulDeliveries = [],
@@ -70,6 +71,7 @@ export default function ReportsAnalytics({
   isSubView = false
 }) {
   const [dateFilter, setDateFilter] = useState('All');
+  const [reportDate, setReportDate] = useState('');
 
   // Filtered dataset based on selected time window
   const filteredJobOrders = useMemo(() => {
@@ -84,16 +86,96 @@ export default function ReportsAnalytics({
     });
   }, [jobOrders, dateFilter]);
 
+  const getDeliveryDate = (delivery) => delivery?.deliveredAt || delivery?.completionDate || delivery?.date || delivery?.createdAt;
+  const isDateValueInReport = (dateValue) => {
+    if (!dateValue) return !reportDate && dateFilter === 'All';
+    if (!dateValue) return false;
+    const deliveryDate = new Date(dateValue);
+    if (Number.isNaN(deliveryDate.getTime())) return false;
+    if (reportDate) return deliveryDate.toISOString().slice(0, 10) === reportDate;
+    if (dateFilter === 'All') return true;
+    const days = dateFilter === '30Days' ? 30 : 7;
+    const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+    return deliveryDate >= cutoff;
+  };
+  const isDateInReport = (delivery) => isDateValueInReport(getDeliveryDate(delivery));
+
+  const filteredDoneDeliveries = useMemo(
+    () => (doneDeliveries || []).filter(delivery => delivery?.status !== 'completion' && isDateInReport(delivery)),
+    [doneDeliveries, dateFilter, reportDate]
+  );
+  const filteredUnsuccessfulDeliveries = useMemo(
+    () => (unsuccessfulDeliveries || []).filter(isDateInReport),
+    [unsuccessfulDeliveries, dateFilter, reportDate]
+  );
+
   // Overall KPIs
-  const totalShipments = trips.length || filteredJobOrders.filter(o => o.status === 'assigned' || o.status === 'ready_for_dispatch').length;
-  const completedCount = doneDeliveries.filter(d => d.status !== 'completion').length;
-  const unsuccessfulCount = unsuccessfulDeliveries.length;
+  const completedCount = filteredDoneDeliveries.length;
+  const unsuccessfulCount = filteredUnsuccessfulDeliveries.length;
   const totalDeliveries = completedCount + unsuccessfulCount;
   const successRate = totalDeliveries > 0 ? Math.round((completedCount / totalDeliveries) * 100) : 100;
+  const completedJobOrderIds = new Set((doneDeliveries || [])
+    .filter(delivery => delivery?.status === 'done' || delivery?.status === 'completion')
+    .filter(delivery => delivery?.jobOrderId !== undefined && delivery?.jobOrderId !== null)
+    .map(delivery => String(delivery.jobOrderId)));
+  const unsuccessfulJobOrderIds = new Set((unsuccessfulDeliveries || [])
+    .filter(delivery => delivery?.jobOrderId !== undefined && delivery?.jobOrderId !== null)
+    .map(delivery => String(delivery.jobOrderId)));
+  const onTripJobOrderIds = new Set((events || [])
+    .filter(event => event?.status === 'trip')
+    .map(event => String(event.jobOrderId || event.id)));
 
   // Travel distance & length computations
   const travelReports = useMemo(() => {
-    return filteredJobOrders.map(order => {
+    const reportOrders = [...filteredJobOrders];
+    const existingOrderIds = new Set(reportOrders.map(order => String(order.id)));
+    (events || [])
+      .filter(event => event?.status === 'trip' && !existingOrderIds.has(String(event.jobOrderId || event.id)))
+      .forEach(event => reportOrders.push({
+        ...event,
+        id: event.jobOrderId || event.id,
+        customerName: event.customerName || event.name,
+        address: event.address || event.deliveryData?.address,
+        company: event.company,
+        jobType: event.jobType || 'Delivery',
+        startDate: event.date
+      }));
+
+    [...filteredDoneDeliveries, ...filteredUnsuccessfulDeliveries].forEach(delivery => {
+      const deliveryId = delivery?.jobOrderId || delivery?.id;
+      if (!deliveryId || existingOrderIds.has(String(deliveryId))) return;
+      reportOrders.push({
+        ...delivery,
+        id: deliveryId,
+        customerName: delivery.customerName || delivery.name,
+        address: delivery.address || delivery.deliveryData?.address,
+        startDate: getDeliveryDate(delivery)
+      });
+      existingOrderIds.add(String(deliveryId));
+    });
+
+    return reportOrders.filter(order => {
+      const matchingCompletion = doneDeliveries.find(delivery => String(delivery.jobOrderId) === String(order.id));
+      const matchingUnsuccessful = unsuccessfulDeliveries.find(delivery => String(delivery.jobOrderId) === String(order.id));
+      const relevantDates = [
+        order.startDate,
+        matchingCompletion?.deliveredAt,
+        matchingCompletion?.completionDate,
+        matchingCompletion?.date,
+        matchingUnsuccessful?.date
+      ].filter(Boolean);
+      return relevantDates.length > 0
+        ? relevantDates.some(isDateValueInReport)
+        : isDateInReport(order);
+    }).map(order => {
+      const matchingCompletion = doneDeliveries.find(delivery => String(delivery.jobOrderId) === String(order.id));
+      const matchingUnsuccessful = unsuccessfulDeliveries.find(delivery => String(delivery.jobOrderId) === String(order.id));
+      const deliveryDates = [
+        matchingCompletion?.deliveredAt,
+        matchingCompletion?.completionDate,
+        matchingCompletion?.date,
+        matchingUnsuccessful?.date
+      ].filter(Boolean);
       const metrics = getTravelMetrics(order.address);
       const assignedTrip = trips.find(t => (t.selectedJobOrders || []).includes(order.id) || t.jobOrderId === order.id);
       
@@ -103,16 +185,27 @@ export default function ReportsAnalytics({
         company: order.company || 'OBA Partner',
         address: order.address || 'Standard Location',
         jobType: order.jobType || 'Delivery',
-        status: order.status || 'Pending',
+        status: unsuccessfulJobOrderIds.has(String(order.id))
+          ? 'Unsuccessful'
+          : completedJobOrderIds.has(String(order.id))
+            ? 'Complete'
+            : onTripJobOrderIds.has(String(order.id))
+              ? 'On Trip'
+            : order.status || 'Pending',
         locationName: metrics.locationName,
         distance: metrics.distance,
         duration: metrics.duration,
         region: metrics.region,
         truckNumber: assignedTrip ? assignedTrip.truckNumber : 'TRK-001',
-        driver: assignedTrip ? assignedTrip.driver : 'Assigned Driver'
+        driver: assignedTrip ? assignedTrip.driver : 'Assigned Driver',
+        reportDate: reportDate
+          ? deliveryDates.find(isDateValueInReport) || order.startDate
+          : deliveryDates[0] || order.startDate
       };
     });
-  }, [filteredJobOrders, trips]);
+  }, [filteredJobOrders, events, trips, doneDeliveries, unsuccessfulDeliveries, filteredDoneDeliveries, filteredUnsuccessfulDeliveries, reportDate, completedJobOrderIds, unsuccessfulJobOrderIds, onTripJobOrderIds]);
+
+  const totalShipments = travelReports.length;
 
   const totalTravelKm = useMemo(() => {
     return travelReports.reduce((sum, item) => sum + item.distance, 0);
@@ -138,33 +231,40 @@ export default function ReportsAnalytics({
 
   // Monthly trends calculation
   const monthData = useMemo(() => {
-    const months = Array.from({ length: 6 }, (_, i) => {
-      const d = new Date();
-      d.setMonth(d.getMonth() - (5 - i));
+    const chartYear = reportDate ? new Date(`${reportDate}T00:00:00`).getFullYear() : new Date().getFullYear();
+    const months = Array.from({ length: 12 }, (_, monthIndex) => {
+      const d = new Date(chartYear, monthIndex, 1);
       return {
         label: d.toLocaleString('default', { month: 'short' }),
         key: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`,
         shipments: 0,
-        deliveries: 0
+        deliveries: 0,
+        completed: 0
       };
     });
 
-    filteredJobOrders.forEach(order => {
-      const d = order.startDate ? new Date(order.startDate) : new Date();
+    travelReports.forEach(report => {
+      if (!report.reportDate) return;
+      const d = new Date(report.reportDate);
+      if (Number.isNaN(d.getTime())) return;
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
       const m = months.find(item => item.key === key);
       if (m) {
         m.shipments += 1;
-        if (order.status === 'assigned' || order.status === 'ready_for_dispatch' || order.status === 'approved') {
+        if (report.status === 'Complete' || report.status === 'Unsuccessful') {
           m.deliveries += 1;
+        }
+        if (report.status === 'Complete') {
+          m.completed += 1;
         }
       }
     });
 
     return months;
-  }, [filteredJobOrders]);
+  }, [travelReports, reportDate]);
 
-  const maxMonthValue = Math.max(...monthData.map(m => Math.max(m.shipments, m.deliveries)), 1);
+  const chartMaxValue = reportDate ? 25 : 200;
+  const chartYTicks = reportDate ? [0, 5, 10, 15, 20, 25] : [0, 50, 100, 150, 200];
 
   const handleGenerateReport = () => {
     const completedDeliveries = doneDeliveries.filter(delivery => delivery.status !== 'completion');
@@ -247,7 +347,7 @@ export default function ReportsAnalytics({
             <span style={{ fontSize: '26px' }}>🚚</span>
           </div>
           <div style={{ fontSize: '32px', fontWeight: 'bold', color: '#2e7d32', marginTop: '8px' }}>
-            {completedCount} <span style={{ fontSize: '16px', color: '#4caf50', fontWeight: 'normal' }}>({successRate}% success)</span>
+            {totalDeliveries} <span style={{ fontSize: '16px', color: '#4caf50', fontWeight: 'normal' }}>({successRate}% success)</span>
           </div>
           <div style={{ fontSize: '12px', color: '#888', marginTop: '6px' }}>{unsuccessfulCount} marked unsuccessful</div>
         </div>
@@ -282,24 +382,60 @@ export default function ReportsAnalytics({
             </div>
             <div style={{ display: 'flex', gap: '16px', fontSize: '12px', fontWeight: 'bold' }}>
               <span style={{ color: '#1976d2' }}>■ Total Orders</span>
-              <span style={{ color: '#04ab0c' }}>■ Active Dispatches</span>
+              <span style={{ color: '#04ab0c' }}>■ {reportDate ? 'Deliveries Handled' : 'Success Rate'}</span>
             </div>
           </div>
 
-          <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-end', height: '220px', padding: '20px 10px 10px 10px', borderBottom: '1px solid #eee' }}>
-            {monthData.map(m => {
-              const hShip = Math.max((m.shipments / maxMonthValue) * 170, 8);
-              const hDeliv = Math.max((m.deliveries / maxMonthValue) * 170, 8);
-              return (
-                <div key={m.key} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                  <div style={{ display: 'flex', gap: '6px', alignItems: 'flex-end', width: '100%', justifyContent: 'center' }}>
-                    <div style={{ width: '18px', height: `${hShip}px`, backgroundColor: '#1976d2', borderRadius: '4px 4px 0 0' }} title={`${m.shipments} total orders`} />
-                    <div style={{ width: '18px', height: `${hDeliv}px`, backgroundColor: '#04ab0c', borderRadius: '4px 4px 0 0' }} title={`${m.deliveries} dispatches`} />
-                  </div>
-                  <span style={{ marginTop: '12px', fontSize: '12px', color: '#666', fontWeight: '500' }}>{m.label}</span>
-                </div>
-              );
-            })}
+          <div style={{ height: '220px', padding: '8px 0 0', borderBottom: '1px solid #eee' }}>
+            <svg viewBox="0 0 960 220" preserveAspectRatio="none" style={{ width: '100%', height: '100%' }} role="img" aria-label="Monthly total shipments and deliveries handled">
+              {chartYTicks.map((tick) => {
+                const y = 190 - (tick / chartMaxValue) * 170;
+                return (
+                  <g key={tick}>
+                    <line x1="42" y1={y} x2="890" y2={y} stroke="#e6edf5" strokeWidth="1" />
+                    <text x="34" y={y + 4} textAnchor="end" fill="#5f6f82" fontSize="11">{tick}</text>
+                  </g>
+                );
+              })}
+              {[0, 20, 40, 60, 80, 100].map((percentage) => {
+                const y = 190 - (percentage / 100) * 170;
+                return <text key={percentage} x="915" y={y + 4} textAnchor="start" fill="#5f6f82" fontSize="11">{percentage}%</text>;
+              })}
+              {['deliveries', 'shipments'].map((series) => {
+                const getChartValue = (month) => series === 'deliveries'
+                  ? (reportDate
+                    ? (month.shipments > 0 ? (month.deliveries / month.shipments) * 100 : 0)
+                    : (month.deliveries > 0 ? (month.completed / month.deliveries) * 100 : 0))
+                  : month.shipments;
+                const points = monthData.map((month, index) => {
+                  const value = getChartValue(month);
+                  const maxValue = series === 'deliveries' ? 100 : chartMaxValue;
+                  return `${index * (840 / 11) + 50},${190 - (Math.min(value, maxValue) / maxValue) * 170}`;
+                }).join(' ');
+                const color = series === 'shipments' ? '#3988f5' : '#04ab0c';
+                return (
+                  <g key={series}>
+                    <polyline points={points} fill="none" stroke={color} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+                    {monthData.map((month, index) => (
+                      <circle
+                        key={month.key}
+                        cx={index * (840 / 11) + 50}
+                        cy={190 - (Math.min(getChartValue(month), series === 'deliveries' ? 100 : chartMaxValue) / (series === 'deliveries' ? 100 : chartMaxValue)) * 170}
+                        r="5"
+                        fill="white"
+                        stroke={color}
+                        strokeWidth="3"
+                      >
+                        <title>{series === 'deliveries'
+                          ? `${month.label}: ${Math.round(getChartValue(month))}% ${reportDate ? 'deliveries handled' : 'success rate'}`
+                          : `${month.label}: ${month.shipments} total shipments`}</title>
+                      </circle>
+                    ))}
+                  </g>
+                );
+              })}
+              {monthData.map((month, index) => <text key={month.key} x={index * (840 / 11) + 50} y="213" textAnchor="middle" fill="#5f6f82" fontSize="11">{month.label}</text>)}
+            </svg>
           </div>
         </div>
 
@@ -336,12 +472,30 @@ export default function ReportsAnalytics({
             <h3 style={{ margin: 0, fontSize: '18px', color: '#333' }}>🛣️ Shipment Travel Length & Client Locations Report</h3>
             <p style={{ margin: '4px 0 0', color: '#777', fontSize: '13px' }}>Detailed breakdown of delivery distance, travel time, assigned vehicle, and destination location.</p>
           </div>
-          <span style={{ fontSize: '13px', color: '#555', fontWeight: 'bold' }}>{travelReports.length} records analyzed</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: '#555', fontWeight: '600' }}>
+              Choose Date:
+              <input
+                type="date"
+                value={reportDate}
+                onChange={(e) => setReportDate(e.target.value)}
+                style={{ padding: '8px 10px', border: '1px solid #d8dee6', borderRadius: '6px', color: '#333', backgroundColor: '#fff' }}
+              />
+              <button
+                type="button"
+                onClick={() => setReportDate('')}
+                style={{ padding: '8px 10px', border: '1px solid #1976d2', borderRadius: '6px', color: '#1976d2', backgroundColor: reportDate ? '#fff' : '#e3f2fd', cursor: 'pointer', fontWeight: '600' }}
+              >
+                Overall View
+              </button>
+            </label>
+            <span style={{ fontSize: '13px', color: '#555', fontWeight: 'bold' }}>{travelReports.length} records analyzed</span>
+          </div>
         </div>
 
-        <div style={{ overflowX: 'auto' }}>
+        <div style={{ maxHeight: '420px', overflow: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
-            <thead>
+            <thead style={{ position: 'sticky', top: 0, zIndex: 1, backgroundColor: '#f9f9f9' }}>
               <tr style={{ backgroundColor: '#f9f9f9', borderBottom: '2px solid #eee' }}>
                 <th style={{ padding: '12px 14px', color: '#555', fontSize: '13px' }}>Client / Customer</th>
                 <th style={{ padding: '12px 14px', color: '#555', fontSize: '13px' }}>Delivery Address</th>
@@ -385,8 +539,8 @@ export default function ReportsAnalytics({
                         borderRadius: '12px',
                         fontSize: '11px',
                         fontWeight: 'bold',
-                        backgroundColor: report.status === 'assigned' ? '#e3f2fd' : report.status === 'completion' ? '#e8f5e9' : '#fff3e0',
-                        color: report.status === 'assigned' ? '#1565c0' : report.status === 'completion' ? '#2e7d32' : '#e65100'
+                        backgroundColor: report.status === 'Complete' || report.status === 'completion' ? '#e8f5e9' : report.status === 'Unsuccessful' ? '#ffebee' : report.status === 'On Trip' || report.status === 'assigned' ? '#e3f2fd' : '#fff3e0',
+                        color: report.status === 'Complete' || report.status === 'completion' ? '#2e7d32' : report.status === 'Unsuccessful' ? '#c62828' : report.status === 'On Trip' || report.status === 'assigned' ? '#1565c0' : '#e65100'
                       }}>
                         {report.status}
                       </span>
