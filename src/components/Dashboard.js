@@ -227,7 +227,7 @@ export default function Dashboard({ user, onLogout, onNavigate, events, onMarkDo
           <header className="dashboard-header">
             <h1>Overview</h1>
             <div className="header-right">
-              <div className="notifications-icon" onClick={() => setShowNotifications(!showNotifications)} style={{ position: 'relative', cursor: 'pointer', marginRight: '16px' }}>
+              <div className="notifications-icon mobile-header-notification" onClick={() => setShowNotifications(!showNotifications)} style={{ position: 'relative', cursor: 'pointer', marginRight: '16px' }}>
                 🔔
                 {adminNotifications && adminNotifications.filter(n => !n.read).length > 0 && (
                   <span style={{

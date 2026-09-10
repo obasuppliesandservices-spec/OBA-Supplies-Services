@@ -1767,6 +1767,15 @@ html, body, #root {
     transition: background-color 0.2s ease;
   }
 
+  .mobile-header-notification {
+    position: fixed !important;
+    top: 20px;
+    right: 62px;
+    margin-right: 0 !important;
+    z-index: 1100;
+    font-size: 20px;
+  }
+
   .mobile-menu-toggle:hover {
     background: var(--accent-light-gray);
   }

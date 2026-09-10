@@ -1131,7 +1131,7 @@ export default function Logistics({ user, onLogout, onNavigate, events, onMarkDo
           <header className="dashboard-header">
             <h1>{activeTab === 'dashboard' ? 'Overview' : activeTab === 'tripmanager' ? 'Trip Manager' : activeTab === 'deliveries' ? 'Deliveries & Processing' : activeTab === 'truckinfo' ? 'Truck Info' : activeTab === 'analytics' ? 'Logistics Analytics' : 'Inventory'}</h1>
             <div className="header-right">
-              <div className="notifications-icon" onClick={() => setShowNotifications(!showNotifications)} style={{ position: 'relative', cursor: 'pointer', marginRight: '16px' }}>
+              <div className="notifications-icon mobile-header-notification" onClick={() => setShowNotifications(!showNotifications)} style={{ position: 'relative', cursor: 'pointer', marginRight: '16px' }}>
                 🔔
                 {adminNotifications && adminNotifications.filter(n => !n.read).length > 0 && (
                   <span style={{
