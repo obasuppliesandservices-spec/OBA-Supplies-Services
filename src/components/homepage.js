@@ -21,6 +21,18 @@ const SERVICE_CONFIG = {
   'Professional Mechanical Engineer Consultancy': { manpower: 1, contractLength: '3 Months' }
 };
 
+const formatDateInput = (date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const parseDateInput = (value) => {
+  const [year, month, day] = value.split('-').map(Number);
+  return new Date(year, month - 1, day);
+};
+
 export default function Homepage({ onLoginClick, onLogout, isLoggedIn, user, cart, onAddToCart, onViewCart, onRemoveFromCart, showCart, onContinueShopping, onClearCart, onCheckout, onSubmitOrder, notifications, setNotifications, onAddFeedback }) {
   const [currentPage, setCurrentPage] = useStickyState('home', 'homepage_currentPage');
   const [showBlankCart, setShowBlankCart] = useState(false);
@@ -73,8 +85,8 @@ export default function Homepage({ onLoginClick, onLogout, isLoggedIn, user, car
         
         return {
           ...item,
-          startDate: startDate.toISOString().split('T')[0],
-          endDate: endDate.toISOString().split('T')[0],
+          startDate: formatDateInput(startDate),
+          endDate: formatDateInput(endDate),
           manpower: config.manpower,
           contractLength: config.contractLength
         };
@@ -91,7 +103,7 @@ export default function Homepage({ onLoginClick, onLogout, isLoggedIn, user, car
 
     // If contractLength is changed, automatically calculate the end date
     if (field === 'contractLength') {
-      const startDate = new Date(updatedDetails[index].startDate);
+      const startDate = parseDateInput(updatedDetails[index].startDate);
       let endDate = new Date(startDate);
 
       // Parse contract length and add appropriate days
@@ -111,12 +123,12 @@ export default function Homepage({ onLoginClick, onLogout, isLoggedIn, user, car
       }
 
       // Update endDate in the order detail
-      updatedDetails[index].endDate = endDate.toISOString().split('T')[0];
+      updatedDetails[index].endDate = formatDateInput(endDate);
     }
 
     // If startDate is changed, recalculate endDate based on current contractLength
     if (field === 'startDate') {
-      const startDate = new Date(value);
+      const startDate = parseDateInput(value);
       let endDate = new Date(startDate);
       const contractLength = updatedDetails[index].contractLength;
 
@@ -135,7 +147,7 @@ export default function Homepage({ onLoginClick, onLogout, isLoggedIn, user, car
         endDate.setFullYear(endDate.getFullYear() + 1);
       }
 
-      updatedDetails[index].endDate = endDate.toISOString().split('T')[0];
+      updatedDetails[index].endDate = formatDateInput(endDate);
     }
 
     setOrderDetails(updatedDetails);

@@ -109,9 +109,16 @@ export default function ReportsAnalytics({
     [unsuccessfulDeliveries, dateFilter, reportDate]
   );
 
+  const includeDummyAnalyticsData = dateFilter === 'All' && !reportDate;
+  const dummyOrdersByMonth = [140, 25, 110, 30, 180, 45, 70];
+  const dummyCompletedByMonth = [90, 15, 75, 10, 120, 20, 40];
+  const dummyUnsuccessfulByMonth = [2, 8, 1, 10, 3, 4, 2];
+  const dummyCompletedCount = dummyCompletedByMonth.reduce((total, value) => total + value, 0);
+  const dummyUnsuccessfulCount = dummyUnsuccessfulByMonth.reduce((total, value) => total + value, 0);
+
   // Overall KPIs
-  const completedCount = filteredDoneDeliveries.length;
-  const unsuccessfulCount = filteredUnsuccessfulDeliveries.length;
+  const completedCount = filteredDoneDeliveries.length + (includeDummyAnalyticsData ? dummyCompletedCount : 0);
+  const unsuccessfulCount = filteredUnsuccessfulDeliveries.length + (includeDummyAnalyticsData ? dummyUnsuccessfulCount : 0);
   const totalDeliveries = completedCount + unsuccessfulCount;
   const successRate = totalDeliveries > 0 ? Math.round((completedCount / totalDeliveries) * 100) : 100;
   const completedJobOrderIds = new Set((doneDeliveries || [])
@@ -205,7 +212,7 @@ export default function ReportsAnalytics({
     });
   }, [filteredJobOrders, events, trips, doneDeliveries, unsuccessfulDeliveries, filteredDoneDeliveries, filteredUnsuccessfulDeliveries, reportDate, completedJobOrderIds, unsuccessfulJobOrderIds, onTripJobOrderIds]);
 
-  const totalShipments = travelReports.length;
+  const totalShipments = travelReports.length + (includeDummyAnalyticsData ? dummyOrdersByMonth.reduce((total, value) => total + value, 0) : 0);
 
   const totalTravelKm = useMemo(() => {
     return travelReports.reduce((sum, item) => sum + item.distance, 0);
@@ -237,9 +244,11 @@ export default function ReportsAnalytics({
       return {
         label: d.toLocaleString('default', { month: 'short' }),
         key: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`,
-        shipments: 0,
-        deliveries: 0,
-        completed: 0
+        shipments: includeDummyAnalyticsData && monthIndex < 7 ? dummyOrdersByMonth[monthIndex] : 0,
+        deliveries: includeDummyAnalyticsData && monthIndex < 7
+          ? dummyCompletedByMonth[monthIndex] + dummyUnsuccessfulByMonth[monthIndex]
+          : 0,
+        completed: includeDummyAnalyticsData && monthIndex < 7 ? dummyCompletedByMonth[monthIndex] : 0
       };
     });
 
@@ -489,7 +498,7 @@ export default function ReportsAnalytics({
                 Overall View
               </button>
             </label>
-            <span style={{ fontSize: '13px', color: '#555', fontWeight: 'bold' }}>{travelReports.length} records analyzed</span>
+            <span style={{ fontSize: '13px', color: '#555', fontWeight: 'bold' }}>{totalDeliveries} records analyzed</span>
           </div>
         </div>
 

@@ -40,8 +40,15 @@ export default function Dashboard({ user, onLogout, onNavigate, events, onMarkDo
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [showNotifications]);
 
-  const endedJobOrdersCount = (doneDeliveries || []).filter(delivery => delivery?.status === 'completion').length;
-  const completedDeliveriesCount = (doneDeliveries || []).filter(delivery => delivery?.status !== 'completion').length;
+  const dummyCompletedByMonth = [90, 15, 75, 10, 120, 20, 40];
+  const dummyUnsuccessfulByMonth = [2, 8, 1, 10, 3, 4, 2];
+  const dummyEndedJobOrdersByMonth = [170, 30, 115, 20, 175, 45, 45];
+  const dummyCompletedDeliveriesCount = dummyCompletedByMonth.reduce((total, value) => total + value, 0);
+  const dummyUnsuccessfulDeliveriesCount = dummyUnsuccessfulByMonth.reduce((total, value) => total + value, 0);
+  const dummyEndedJobOrdersCount = dummyEndedJobOrdersByMonth.reduce((total, value) => total + value, 0);
+  const endedJobOrdersCount = dummyEndedJobOrdersCount + (doneDeliveries || []).filter(delivery => delivery?.status === 'completion').length;
+  const completedDeliveriesCount = dummyCompletedDeliveriesCount + (doneDeliveries || []).filter(delivery => delivery?.status !== 'completion').length;
+  const unsuccessfulDeliveriesCount = dummyUnsuccessfulDeliveriesCount + (unsuccessfulDeliveries || []).length;
   const dashboardJobOrderEvents = getVisibleJobOrderEvents({
     events,
     doneDeliveries,
@@ -51,12 +58,18 @@ export default function Dashboard({ user, onLogout, onNavigate, events, onMarkDo
   const currentDeliveries = (events || [])
     .filter(event => event.status === 'trip')
     .sort((firstEvent, secondEvent) => {
-      const firstDate = new Date(`${firstEvent.date || ''} ${firstEvent.time || ''}`).getTime();
-      const secondDate = new Date(`${secondEvent.date || ''} ${secondEvent.time || ''}`).getTime();
+      const firstDate = new Date(firstEvent.createdAt || `${firstEvent.date || ''} ${firstEvent.time || ''}`).getTime();
+      const secondDate = new Date(secondEvent.createdAt || `${secondEvent.date || ''} ${secondEvent.time || ''}`).getTime();
       const firstTimestamp = Number.isNaN(firstDate) ? Number(firstEvent.id) || 0 : firstDate;
       const secondTimestamp = Number.isNaN(secondDate) ? Number(secondEvent.id) || 0 : secondDate;
       return secondTimestamp - firstTimestamp;
     });
+  const getDeliveryCreatedTime = (event) => {
+    const createdDate = new Date(event.createdAt || event.id);
+    return Number.isNaN(createdDate.getTime())
+      ? event.time
+      : createdDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  };
 
   const handleAddEvent = (eventData) => {
     onAddEvent(eventData);
@@ -74,7 +87,7 @@ export default function Dashboard({ user, onLogout, onNavigate, events, onMarkDo
     chartData.push({
       label: d.toLocaleString('default', { month: 'short' }),
       monthKey: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`,
-      value: 0
+      value: month < 7 ? dummyCompletedByMonth[month] + dummyUnsuccessfulByMonth[month] : 0
     });
   }
 
@@ -110,7 +123,7 @@ export default function Dashboard({ user, onLogout, onNavigate, events, onMarkDo
 
   const maxValue = Math.max(...chartData.map(d => d.value), 200);
   const roundedMax = Math.ceil(maxValue / 50) * 50;
-  const deliveryStatusTotal = completedDeliveriesCount + unsuccessfulDeliveries.length;
+  const deliveryStatusTotal = completedDeliveriesCount + unsuccessfulDeliveriesCount;
   const completedShare = deliveryStatusTotal ? completedDeliveriesCount / deliveryStatusTotal : 0;
   const pieCircumference = 2 * Math.PI * 70;
 
@@ -119,7 +132,7 @@ export default function Dashboard({ user, onLogout, onNavigate, events, onMarkDo
     return {
       label: monthDate.toLocaleString('default', { month: 'short' }),
       monthKey: `${currentYear}-${String(month + 1).padStart(2, '0')}`,
-      value: 0
+      value: month < 7 ? dummyEndedJobOrdersByMonth[month] : 0
     };
   });
 
@@ -151,7 +164,7 @@ export default function Dashboard({ user, onLogout, onNavigate, events, onMarkDo
   const currentTrendPoint = endedTrendPoints[currentMonthIndex];
 
   const endedOrdersChartMonths = endedJobOrderTrend;
-  const endedOrdersChartMax = 200;
+  const endedOrdersChartMax = Math.max(200, ...endedOrdersChartMonths.map(month => month.value || 0));
   const endedOrdersChartWidth = 900;
   const endedOrdersChartHeight = 220;
   const endedOrdersChartPadding = { top: 16, right: 20, bottom: 30, left: 42 };
@@ -162,14 +175,8 @@ export default function Dashboard({ user, onLogout, onNavigate, events, onMarkDo
     const y = endedOrdersChartPadding.top + endedOrdersChartInnerHeight - (value / endedOrdersChartMax) * endedOrdersChartInnerHeight;
     return { x, y, value };
   });
-  const endedOrdersActualPoints = endedOrdersChartPoints(endedOrdersChartMonths.map(month => Math.min(100, Math.max(0, month.value * 10))));
-  const endedOrdersTargetPoints = endedOrdersChartPoints(endedOrdersChartMonths.map((month, index) => {
-    const base = Math.min(100, Math.max(0, month.value * 10));
-    const offset = index % 2 === 0 ? 8 : 12;
-    return Math.min(100, Math.max(0, base + offset));
-  }));
+  const endedOrdersActualPoints = endedOrdersChartPoints(endedOrdersChartMonths.map(month => Math.max(0, month.value || 0)));
   const endedOrdersActualLine = endedOrdersActualPoints.map(point => `${point.x},${point.y}`).join(' ');
-  const endedOrdersTargetLine = endedOrdersTargetPoints.map(point => `${point.x},${point.y}`).join(' ');
 
   const graphBottom = 245;
   const graphTop = 25;
@@ -298,7 +305,7 @@ export default function Dashboard({ user, onLogout, onNavigate, events, onMarkDo
           <section className="stats-section">
             <StatCard
               title="Total Deliveries"
-              value={completedDeliveriesCount + unsuccessfulDeliveries.length}
+              value={completedDeliveriesCount + unsuccessfulDeliveriesCount}
               onView={() => setModalView({ title: 'Total Deliveries', items: [
                 ...(doneDeliveries || []).filter(d => d?.status !== 'completion'),
                 ...(unsuccessfulDeliveries || [])
@@ -311,7 +318,7 @@ export default function Dashboard({ user, onLogout, onNavigate, events, onMarkDo
             />
             <StatCard
               title="Unsuccessful Deliveries"
-              value={unsuccessfulDeliveries.length}
+              value={unsuccessfulDeliveriesCount}
               onView={() => setModalView({ title: 'Unsuccessful Deliveries', items: unsuccessfulDeliveries || [], onUndo: onUndoUnsuccessful })}
             />
             <StatCard
@@ -345,7 +352,7 @@ export default function Dashboard({ user, onLogout, onNavigate, events, onMarkDo
                         </div>
                       </div>
                       <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-                        <span className="meeting-time">{event.time}</span>
+                        <span className="meeting-time">{getDeliveryCreatedTime(event)}</span>
                         <span className="meeting-date">📅{new Date(event.date).toLocaleDateString()}</span>
                         <button className="btn-remove" onClick={() => onMarkDeliveryDone(event.id)}>Done</button>
                         <button
@@ -501,7 +508,7 @@ export default function Dashboard({ user, onLogout, onNavigate, events, onMarkDo
                         strokeDashoffset={-completedShare * pieCircumference}
                         transform="rotate(-90 90 90)"
                       >
-                        <title>{`Unsuccessful: ${unsuccessfulDeliveries.length} of ${deliveryStatusTotal} total deliveries`}</title>
+                        <title>{`Unsuccessful: ${unsuccessfulDeliveriesCount} of ${deliveryStatusTotal} total deliveries`}</title>
                       </circle>
                     </>
                   )}
@@ -511,7 +518,7 @@ export default function Dashboard({ user, onLogout, onNavigate, events, onMarkDo
               </div>
               <div className="pie-legend">
                 <span><i className="pie-dot completed-dot"></i>Completed <strong>{completedDeliveriesCount}</strong></span>
-                <span><i className="pie-dot unsuccessful-dot"></i>Unsuccessful <strong>{unsuccessfulDeliveries.length}</strong></span>
+                <span><i className="pie-dot unsuccessful-dot"></i>Unsuccessful <strong>{unsuccessfulDeliveriesCount}</strong></span>
               </div>
             </section>
           </div>

@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { persistItemList, readImageAsDataUrl } from '../storageUtils';
 
 const initialServicesData = [
   {
@@ -71,7 +72,7 @@ export default function AdminService() {
   });
 
   useEffect(() => {
-    localStorage.setItem('adminService_services', JSON.stringify(servicesData));
+    persistItemList('adminService_services', servicesData);
   }, [servicesData]);
 
   const handleAddService = () => {
@@ -115,13 +116,9 @@ export default function AdminService() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === 'string') {
-        setNewService((prev) => ({ ...prev, img: reader.result }));
-      }
-    };
-    reader.readAsDataURL(file);
+    readImageAsDataUrl(file).then((image) => {
+      setNewService((prev) => ({ ...prev, img: image }));
+    }).catch(() => {});
   };
 
   const handleCancel = () => {

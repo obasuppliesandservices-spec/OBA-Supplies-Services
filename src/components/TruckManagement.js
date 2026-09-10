@@ -266,7 +266,7 @@ export default function TruckManagement({ user, onLogout, onNavigate, trucks = [
   const mainContent = (
     <div style={{ padding: '20px 0' }}>
       {/* Fleet Stats cards */}
-      <section className="stats-section" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '20px', marginBottom: '24px' }}>
+      <section className="stats-section truck-fleet-stats" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '20px', marginBottom: '24px' }}>
         <div className="stat-card" style={{ backgroundColor: '#fff', borderRadius: '12px', padding: '20px', boxShadow: '0 4px 12px rgba(0,0,0,0.05)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span style={{ fontSize: '14px', color: '#666', fontWeight: '500' }}>Total Fleet</span>
@@ -304,10 +304,10 @@ export default function TruckManagement({ user, onLogout, onNavigate, trucks = [
       </section>
 
       {/* Main Grid: Left is Fleet, Right is Active Maintenance Logs */}
-      <div style={{ display: 'grid', gridTemplateColumns: '3fr 2fr', gap: '24px' }}>
+      <div className="truck-fleet-layout" style={{ display: 'grid', gridTemplateColumns: '3fr 2fr', gap: '24px' }}>
 
         {/* Fleet List Card */}
-        <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '24px', boxShadow: '0 4px 20px rgba(0,0,0,0.04)' }}>
+        <div className="truck-fleet-panel" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '24px', boxShadow: '0 4px 20px rgba(0,0,0,0.04)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
             <h3 style={{ margin: 0, fontSize: '18px', color: '#333' }}>Truck Fleet</h3>
             <button className="btn-add" onClick={handleOpenAdd} style={{ padding: '8px 16px', backgroundColor: '#04ab0c', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>
@@ -315,8 +315,8 @@ export default function TruckManagement({ user, onLogout, onNavigate, trucks = [
             </button>
           </div>
 
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+          <div className="truck-fleet-table-wrap" style={{ overflowX: 'auto' }}>
+            <table className="truck-fleet-table" style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
               <thead>
                 <tr style={{ borderBottom: '2px solid #f0f0f0', paddingBottom: '12px' }}>
                   <th style={{ padding: '12px 8px', color: '#666', fontSize: '14px', fontWeight: '600' }}>Truck Number</th>

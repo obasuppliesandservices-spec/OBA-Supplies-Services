@@ -49,6 +49,12 @@ function StatCard({ title, value, icon = '👥', onView }) {
   );
 }
 
+const getValidJobOrders = (jobOrders) => (
+  Array.isArray(jobOrders)
+    ? jobOrders.filter(order => order && typeof order === 'object')
+    : []
+);
+
 function LogisticsAnalytics({ jobOrders = [], trips = [], doneDeliveries = [], unsuccessfulDeliveries = [], inventoryData = {} }) {
   const allInventory = Object.values(inventoryData).flat();
   const lowStockItems = allInventory.filter(item => Number(item.quantity) <= 50);
@@ -288,6 +294,40 @@ const initialInventoryData = {
   ]
 };
 
+const getWarehouseCatalogItems = () => {
+  const readCatalog = (key) => {
+    try {
+      const saved = localStorage.getItem(key);
+      const parsed = saved ? JSON.parse(saved) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (error) {
+      return [];
+    }
+  };
+
+  const services = readCatalog('adminService_services');
+  const products = readCatalog('adminProduct_products');
+
+  return [
+    ...products.filter(product => product?.name).map((product, index) => ({
+      id: `product-${index}-${product.name}`,
+      name: product.name,
+      category: 'Products',
+      quantity: 0,
+      unit: 'items',
+      weight: 15
+    })),
+    ...services.filter(service => service?.title).map((service, index) => ({
+      id: `service-${index}-${service.title}`,
+      name: service.title,
+      category: 'Services',
+      quantity: 0,
+      unit: 'items',
+      weight: 15
+    }))
+  ];
+};
+
 const DEFAULT_TRUCKS = [
   { id: 'TRK-001', name: 'TRK-001 (Faw 6 Wheeler)', maxWeight: 5000, gridZones: Math.floor(5000 / 100) },
   { id: 'TRK-002', name: 'TRK-002 (Isuzu ELF)', maxWeight: 3000, gridZones: Math.floor(3000 / 100) },
@@ -407,14 +447,22 @@ export const getAutoSelectedDriverPahinante = (employees = [], trips = [], arriv
 const getAssistantName = (trip = {}) => trip.assistant || trip.pahintate || '';
 
 export const getTruckArrivalTrips = (trips = [], arrivedTripIds = []) => {
-  return (trips || []).map(trip => ({
-    id: trip.id,
-    truckNumber: trip.truckNumber || '',
-    truckType: trip.truckType || 'Standard',
-    driver: trip.driver || '',
-    assistant: getAssistantName(trip),
-    isArrived: (arrivedTripIds || []).includes(trip.id)
-  }));
+  const normalizeTimestamp = (value) => {
+    if (!value) return 0;
+    const parsed = new Date(value).getTime();
+    return Number.isNaN(parsed) ? 0 : parsed;
+  };
+
+  return [...(trips || [])]
+    .sort((a, b) => normalizeTimestamp(b?.createdAt || b?.createdDate || b?.id) - normalizeTimestamp(a?.createdAt || a?.createdDate || a?.id))
+    .map(trip => ({
+      id: trip.id,
+      truckNumber: trip.truckNumber || '',
+      truckType: trip.truckType || 'Standard',
+      driver: trip.driver || '',
+      assistant: getAssistantName(trip),
+      isArrived: (arrivedTripIds || []).includes(trip.id)
+    }));
 };
 
 export const buildArrivalHistoryEntry = (trip = {}, arrivedAt = new Date()) => ({
@@ -452,9 +500,32 @@ export const getAutoAssignedManpower = (employees = [], requiredCount = 0) => {
 export default function Logistics({ user, onLogout, onNavigate, events, onMarkDone, onMarkDeliveryDone = onMarkDone, onStartContract, doneDeliveries = [], onUndoDone, unsuccessfulDeliveries = [], onMarkUnsuccessful, onUndoUnsuccessful, onAddEvent, onOpenJobOrderModal, jobOrders = [], onRemoveEvent, onRemoveDoneEvent, onRemoveUnsuccessfulEvent, onRemoveJobOrder, adminNotifications, setAdminNotifications, trips = [], onAddTrip, onUpdateJobOrderStatus, trucks = [], onUpdateTrucks, employees: propEmployees = [], initialActiveTab = 'dashboard' }) {
   const TRUCKS = trucks && trucks.length > 0 ? trucks : DEFAULT_TRUCKS;
   const [truckInfoSubTab, setTruckInfoSubTab] = useStickyState('management', 'logistics_truckInfoSubTab');
-  const [inventoryData, setInventoryData] = useState(initialInventoryData);
+  const [inventoryData, setInventoryData] = useState(() => ({
+    ...initialInventoryData,
+    warehouse1: getWarehouseCatalogItems()
+  }));
   const [restockItem, setRestockItem] = useState(null);
   const [restockQuantity, setRestockQuantity] = useState('');
+
+  useEffect(() => {
+    const syncWarehouseCatalog = () => {
+      const catalogItems = getWarehouseCatalogItems();
+      setInventoryData(prev => {
+        const previousItems = prev.warehouse1 || [];
+        const previousByName = new Map(previousItems.map(item => [item.name, item]));
+        const mergedItems = catalogItems.map(item => ({
+          ...item,
+          quantity: previousByName.get(item.name)?.quantity || 0
+        }));
+
+        return { ...prev, warehouse1: mergedItems };
+      });
+    };
+
+    window.addEventListener('storage', syncWarehouseCatalog);
+    syncWarehouseCatalog();
+    return () => window.removeEventListener('storage', syncWarehouseCatalog);
+  }, []);
   const [cachedJobOrders, setCachedJobOrders] = useState(() => {
     if (Array.isArray(jobOrders) && jobOrders.length > 0) return jobOrders;
     try {
@@ -520,7 +591,7 @@ export default function Logistics({ user, onLogout, onNavigate, events, onMarkDo
   useEffect(() => {
     if (!Array.isArray(doneDeliveries) || doneDeliveries.length === 0 || !Array.isArray(trips)) return;
 
-    const effectiveJobOrders = (jobOrders && jobOrders.length > 0) ? jobOrders : cachedJobOrders;
+    const effectiveJobOrders = getValidJobOrders((jobOrders && jobOrders.length > 0) ? jobOrders : cachedJobOrders);
     const completedEntries = [];
     doneDeliveries.forEach((delivery) => {
       if (!delivery?.jobOrderId) return;
@@ -558,7 +629,7 @@ export default function Logistics({ user, onLogout, onNavigate, events, onMarkDo
   }, [doneDeliveries, trips, jobOrders, cachedJobOrders]);
 
   useEffect(() => {
-    const effectiveJobOrders = (jobOrders && jobOrders.length > 0) ? jobOrders : cachedJobOrders;
+    const effectiveJobOrders = getValidJobOrders((jobOrders && jobOrders.length > 0) ? jobOrders : cachedJobOrders);
     const unsuccessfulTrips = (trips || []).filter(trip => trip?.tripStatus === 'unsuccessful');
     if (unsuccessfulTrips.length === 0) return;
 
@@ -581,8 +652,15 @@ export default function Logistics({ user, onLogout, onNavigate, events, onMarkDo
     });
   }, [trips, jobOrders, cachedJobOrders]);
 
-  const endedJobOrdersCount = (doneDeliveries || []).filter(delivery => delivery?.status === 'completion').length;
-  const completedDeliveriesCount = (doneDeliveries || []).filter(delivery => delivery?.status !== 'completion').length;
+  const dummyCompletedByMonth = [90, 15, 75, 10, 120, 20, 40];
+  const dummyUnsuccessfulByMonth = [2, 8, 1, 10, 3, 4, 2];
+  const dummyEndedJobOrdersByMonth = [170, 30, 115, 20, 175, 45, 45];
+  const dummyCompletedDeliveriesCount = dummyCompletedByMonth.reduce((total, value) => total + value, 0);
+  const dummyUnsuccessfulDeliveriesCount = dummyUnsuccessfulByMonth.reduce((total, value) => total + value, 0);
+  const dummyEndedJobOrdersCount = dummyEndedJobOrdersByMonth.reduce((total, value) => total + value, 0);
+  const endedJobOrdersCount = dummyEndedJobOrdersCount + (doneDeliveries || []).filter(delivery => delivery?.status === 'completion').length;
+  const completedDeliveriesCount = dummyCompletedDeliveriesCount + (doneDeliveries || []).filter(delivery => delivery?.status !== 'completion').length;
+  const unsuccessfulDeliveriesCount = dummyUnsuccessfulDeliveriesCount + (unsuccessfulDeliveries || []).length;
   const dashboardJobOrderEvents = getVisibleJobOrderEvents({
     events,
     doneDeliveries,
@@ -592,12 +670,18 @@ export default function Logistics({ user, onLogout, onNavigate, events, onMarkDo
   const currentDeliveries = (events || [])
     .filter(event => event.status === 'trip')
     .sort((firstEvent, secondEvent) => {
-      const firstDate = new Date(`${firstEvent.date || ''} ${firstEvent.time || ''}`).getTime();
-      const secondDate = new Date(`${secondEvent.date || ''} ${secondEvent.time || ''}`).getTime();
+      const firstDate = new Date(firstEvent.createdAt || `${firstEvent.date || ''} ${firstEvent.time || ''}`).getTime();
+      const secondDate = new Date(secondEvent.createdAt || `${secondEvent.date || ''} ${secondEvent.time || ''}`).getTime();
       const firstTimestamp = Number.isNaN(firstDate) ? Number(firstEvent.id) || 0 : firstDate;
       const secondTimestamp = Number.isNaN(secondDate) ? Number(secondEvent.id) || 0 : secondDate;
       return secondTimestamp - firstTimestamp;
     });
+  const getDeliveryCreatedTime = (event) => {
+    const createdDate = new Date(event.createdAt || event.id);
+    return Number.isNaN(createdDate.getTime())
+      ? event.time
+      : createdDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  };
 
   const handleRestock = (e) => {
     e.preventDefault();
@@ -627,8 +711,8 @@ export default function Logistics({ user, onLogout, onNavigate, events, onMarkDo
   const activeTrips = (trips || [])
     .filter(trip => !completedTripIds.has(trip.id) && trip.tripStatus !== 'unsuccessful')
     .sort((a, b) => {
-      const timeA = new Date(a.createdDate || a.id || 0).getTime();
-      const timeB = new Date(b.createdDate || b.id || 0).getTime();
+      const timeA = new Date(a.createdAt || a.id || a.createdDate || 0).getTime();
+      const timeB = new Date(b.createdAt || b.id || b.createdDate || 0).getTime();
       return timeB - timeA;
     });
 
@@ -745,7 +829,7 @@ export default function Logistics({ user, onLogout, onNavigate, events, onMarkDo
   const handleTripSubmit = (e) => {
     e.preventDefault();
     if (newTrip.truckNumber && newTrip.driver && newTrip.pahintate && newTrip.selectedJobOrders.length > 0) {
-      const effectiveJobOrders = (jobOrders && jobOrders.length > 0) ? jobOrders : cachedJobOrders;
+      const effectiveJobOrders = getValidJobOrders((jobOrders && jobOrders.length > 0) ? jobOrders : cachedJobOrders);
       const totalManpower = (newTrip.selectedJobOrders || []).reduce((total, id) => {
         const order = effectiveJobOrders.find(o => o.id === id);
         return total + (order ? Number(order.manpower) || 0 : 0);
@@ -754,6 +838,7 @@ export default function Logistics({ user, onLogout, onNavigate, events, onMarkDo
         ...newTrip,
         id: Date.now(),
         totalManpower,
+        createdAt: new Date().toISOString(),
         createdDate: new Date().toISOString().split('T')[0]
       };
       if (onAddTrip) {
@@ -766,7 +851,8 @@ export default function Logistics({ user, onLogout, onNavigate, events, onMarkDo
           const tripEvent = {
             id: Date.now() + index,
             name: `🚚 Trip: ${jobOrder.customerName} - ${jobOrder.jobType} (${newTrip.truckNumber})`,
-            time: '08:00 AM',
+            createdAt: new Date().toISOString(),
+            time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
             date: jobOrder.startDate,
             jobType: jobOrder.jobType,
             manpower: jobOrder.manpower,
@@ -794,7 +880,7 @@ export default function Logistics({ user, onLogout, onNavigate, events, onMarkDo
     }
   };
 
-  const effectiveJobOrders = (jobOrders && jobOrders.length > 0) ? jobOrders : cachedJobOrders;
+  const effectiveJobOrders = getValidJobOrders((jobOrders && jobOrders.length > 0) ? jobOrders : cachedJobOrders);
 
   const getTotalManpower = (jobOrderIds, entryOrTrip = null) => {
     if (entryOrTrip && typeof entryOrTrip.totalManpower === 'number' && entryOrTrip.totalManpower > 0) {
@@ -858,7 +944,7 @@ export default function Logistics({ user, onLogout, onNavigate, events, onMarkDo
     chartData.push({
       label: d.toLocaleString('default', { month: 'short' }),
       monthKey: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`,
-      value: 0
+      value: month < 7 ? dummyCompletedByMonth[month] + dummyUnsuccessfulByMonth[month] : 0
     });
   }
 
@@ -888,13 +974,13 @@ export default function Logistics({ user, onLogout, onNavigate, events, onMarkDo
 
   const maxValue = Math.max(...chartData.map(d => d.value), 200);
   const roundedMax = Math.ceil(maxValue / 50) * 50;
-  const deliveryStatusTotal = completedDeliveriesCount + unsuccessfulDeliveries.length;
+  const deliveryStatusTotal = completedDeliveriesCount + unsuccessfulDeliveriesCount;
   const completedShare = deliveryStatusTotal ? completedDeliveriesCount / deliveryStatusTotal : 0;
   const pieCircumference = 2 * Math.PI * 70;
 
   const endedJobOrderTrend = Array.from({ length: 12 }, (_, month) => ({
     label: new Date(currentYear, month, 1).toLocaleString('default', { month: 'short' }),
-    value: 0
+    value: month < 7 ? dummyEndedJobOrdersByMonth[month] : 0
   }));
 
   (doneDeliveries || [])
@@ -951,46 +1037,44 @@ export default function Logistics({ user, onLogout, onNavigate, events, onMarkDo
       <style>{`
         @media (max-width: 768px) {
           .dashboard-page {
-            flex-direction: column !important;
-            display: flex;
-            height: 100vh;
-            overflow: hidden;
+            display: block;
+            min-height: 100vh;
+            height: auto;
+            overflow: visible;
           }
           .sidebar-left {
-            width: 100% !important;
-            height: auto !important;
+            width: 190px !important;
+            height: 100vh !important;
             position: fixed;
+            top: 0;
             bottom: 0;
             z-index: 1000;
-            padding: 10px 0;
-            background: #fff;
-            box-shadow: 0 -2px 10px rgba(0,0,0,0.1);
+            padding: 18px 10px;
+            background: rgba(12, 136, 47, 0.9);
+            box-shadow: 4px 0 18px rgba(15,23,42,0.12);
           }
-          .sidebar-logo, .nav-title {
-            display: none !important;
+          .sidebar-logo {
+            display: block !important;
           }
           .sidebar-nav ul {
-            display: flex !important;
-            flex-direction: row !important;
-            justify-content: space-around !important;
-            width: 100% !important;
+            display: block !important;
             margin: 0 !important;
             padding: 0 !important;
           }
           .nav-item {
-            padding: 10px !important;
+            padding: 9px 8px !important;
             font-size: 12px !important;
-            margin: 0 !important;
+            margin-bottom: 3px !important;
           }
           .dashboard-main {
             margin-left: 0 !important;
             width: 100% !important;
-            padding-bottom: 70px !important;
-            overflow-y: auto;
+            padding-bottom: 24px !important;
+            overflow: visible;
           }
           .stats-section {
-            display: flex !important;
-            flex-direction: column !important;
+            display: grid !important;
+            grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
             gap: 10px !important;
           }
           .dashboard-header {
@@ -1127,7 +1211,7 @@ export default function Logistics({ user, onLogout, onNavigate, events, onMarkDo
               <section className="stats-section">
                 <StatCard
                   title="Total Deliveries"
-                  value={completedDeliveriesCount + unsuccessfulDeliveries.length}
+                  value={completedDeliveriesCount + unsuccessfulDeliveriesCount}
                   onView={() => setModalView({ title: 'Total Deliveries', items: [ ...(doneDeliveries || []).filter(d => d?.status !== 'completion'), ...(unsuccessfulDeliveries || []) ], onUndo: onUndoDone })}
                 />
                 <StatCard
@@ -1137,7 +1221,7 @@ export default function Logistics({ user, onLogout, onNavigate, events, onMarkDo
                 />
                 <StatCard
                   title="Unsuccessful Deliveries"
-                  value={unsuccessfulDeliveries.length}
+                  value={unsuccessfulDeliveriesCount}
                   onView={() => setModalView({ title: 'Unsuccessful Deliveries', items: unsuccessfulDeliveries || [], onUndo: onUndoUnsuccessful })}
                 />
                 <StatCard
@@ -1166,7 +1250,7 @@ export default function Logistics({ user, onLogout, onNavigate, events, onMarkDo
                           </div>
                         </div>
                         <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-                          <span className="meeting-time">{event.time}</span>
+                          <span className="meeting-time">{getDeliveryCreatedTime(event)}</span>
                           <span className="meeting-date">📅{new Date(event.date).toLocaleDateString()}</span>
                           <button className="btn-remove" onClick={() => onMarkDeliveryDone(event.id)}>Done</button>
                           <button
@@ -1288,7 +1372,7 @@ export default function Logistics({ user, onLogout, onNavigate, events, onMarkDo
                             <title>{`Completed: ${completedDeliveriesCount} of ${deliveryStatusTotal} total deliveries`}</title>
                           </circle>
                           <circle cx="90" cy="90" r="70" fill="none" stroke="#f5a623" strokeWidth="24" strokeDasharray={`${(1 - completedShare) * pieCircumference} ${pieCircumference}`} strokeDashoffset={-completedShare * pieCircumference} transform="rotate(-90 90 90)">
-                            <title>{`Unsuccessful: ${unsuccessfulDeliveries.length} of ${deliveryStatusTotal} total deliveries`}</title>
+                            <title>{`Unsuccessful: ${unsuccessfulDeliveriesCount} of ${deliveryStatusTotal} total deliveries`}</title>
                           </circle>
                         </>
                       )}
@@ -1298,7 +1382,7 @@ export default function Logistics({ user, onLogout, onNavigate, events, onMarkDo
                   </div>
                   <div className="pie-legend">
                     <span><i className="pie-dot completed-dot"></i>Completed <strong>{completedDeliveriesCount}</strong></span>
-                    <span><i className="pie-dot unsuccessful-dot"></i>Unsuccessful <strong>{unsuccessfulDeliveries.length}</strong></span>
+                    <span><i className="pie-dot unsuccessful-dot"></i>Unsuccessful <strong>{unsuccessfulDeliveriesCount}</strong></span>
                   </div>
                 </section>
               </div>
@@ -1509,7 +1593,7 @@ export default function Logistics({ user, onLogout, onNavigate, events, onMarkDo
                     <span style={{ fontSize: '14px', color: '#666' }}>Select a job order to begin processing allocation.</span>
                   </div>
                   {(() => {
-                    const approvedOrders = jobOrders ? jobOrders.filter(o => o.status === 'approved') : [];
+                    const approvedOrders = getValidJobOrders(jobOrders).filter(order => order.status === 'approved');
                     return !approvedOrders || approvedOrders.length === 0 ? (
                       <div style={{ textAlign: 'center', padding: '40px', color: '#999' }}>No pending orders to process.</div>
                     ) : (

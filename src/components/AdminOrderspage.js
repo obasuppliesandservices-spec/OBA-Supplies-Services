@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { persistItemList, readImageAsDataUrl } from '../storageUtils';
 
 const initialServices = [
   { title: 'Insulation and Cladding', img: '/images/cladding.jpg', price: 299.99 },
@@ -56,11 +57,11 @@ export default function AdminOrderspage() {
   });
 
   useEffect(() => {
-    localStorage.setItem('adminOrderspage_services', JSON.stringify(services));
+    persistItemList('adminOrderspage_services', services);
   }, [services]);
 
   useEffect(() => {
-    localStorage.setItem('adminOrderspage_products', JSON.stringify(products));
+    persistItemList('adminOrderspage_products', products);
   }, [products]);
 
   const handleAddService = () => {
@@ -159,13 +160,9 @@ export default function AdminOrderspage() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === 'string') {
-        setNewItem((prev) => ({ ...prev, img: reader.result }));
-      }
-    };
-    reader.readAsDataURL(file);
+    readImageAsDataUrl(file).then((image) => {
+      setNewItem((prev) => ({ ...prev, img: image }));
+    }).catch(() => {});
   };
 
   const isFormOpen = isAddingService || isAddingProduct || editingServiceIndex !== null || editingProductIndex !== null;
@@ -275,10 +272,10 @@ export default function AdminOrderspage() {
   );
 
   return (
-    <div style={{ padding: '20px 32px', maxWidth: '1400px', margin: '0 auto', position: 'relative' }}>
+    <div style={{ padding: '20px 32px', maxWidth: '1400px', margin: '0 auto', position: 'relative', display: 'flex', flexDirection: 'column' }}>
 
       {/* Services Section */}
-      <div style={{ marginBottom: '64px' }}>
+      <div style={{ marginBottom: '64px', order: 2 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '48px' }}>
           <h2 style={{
             textAlign: 'center',
@@ -334,7 +331,7 @@ export default function AdminOrderspage() {
       </div>
 
       {/* Products Section */}
-      <div>
+      <div style={{ order: 1 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '48px' }}>
           <h2 style={{
             textAlign: 'center',

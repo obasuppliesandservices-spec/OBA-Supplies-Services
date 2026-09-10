@@ -247,7 +247,7 @@ export default function WelcomePage({ onSignInClick, user, onAddFeedback }) {
 
   return (
     <div style={{ minHeight: '100vh' }}>
-      <nav style={{
+      <nav className="welcome-nav" style={{
         background: 'rgba(4, 171, 12, 0.9)',
         backdropFilter: 'blur(16px)',
         WebkitBackdropFilter: 'blur(16px)',
@@ -261,7 +261,7 @@ export default function WelcomePage({ onSignInClick, user, onAddFeedback }) {
         boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)'
       }}>
         {/* logo positioned left */}
-        <div style={{ position: 'absolute', left: '24px', display: 'flex', alignItems: 'center' }}>
+        <div className="welcome-brand" style={{ position: 'absolute', left: '24px', display: 'flex', alignItems: 'center' }}>
           <button
             style={{
               color: 'white',
@@ -282,7 +282,7 @@ export default function WelcomePage({ onSignInClick, user, onAddFeedback }) {
         </div>
 
         {/* centered navigation links */}
-        <div style={{ display: 'flex', gap: '20px', alignItems: 'center', margin: '0 auto' }}>
+        <div className="welcome-nav-links" style={{ display: 'flex', gap: '20px', alignItems: 'center', margin: '0 auto' }}>
           <button
             onClick={() => setCurrentPage('home')}
             style={{ color: 'white', textDecoration: 'none', fontSize: '13px', background: 'transparent', border: 'none', cursor: 'pointer' }}
@@ -312,7 +312,7 @@ export default function WelcomePage({ onSignInClick, user, onAddFeedback }) {
 
         {/* icons positioned right */}
         
-          <button
+          <button className="welcome-sign-in"
             onClick={onSignInClick}
             style={{
               backgroundColor: 'white',
@@ -327,12 +327,12 @@ export default function WelcomePage({ onSignInClick, user, onAddFeedback }) {
           >
             Sign In
           </button>
-          <span role="img" aria-label="user" style={{ fontSize: '20px', color: 'white', cursor: 'pointer' }}></span>
-          <span role="img" aria-label="menu" style={{ fontSize: '24px', color: 'white', cursor: 'pointer' }}></span>
+          <span className="welcome-inline-icon" role="img" aria-label="user" style={{ fontSize: '20px', color: 'white', cursor: 'pointer' }}></span>
+          <span className="welcome-inline-icon" role="img" aria-label="menu" style={{ fontSize: '24px', color: 'white', cursor: 'pointer' }}></span>
         
 
         {/* icons positioned right */}
-        <div style={{ position: 'absolute', right: '24px', display: 'flex', alignItems: 'center', gap: '16px' }}>
+        <div className="welcome-extra-icons" style={{ position: 'absolute', right: '24px', display: 'flex', alignItems: 'center', gap: '16px' }}>
           <span role="img" aria-label="user" style={{ fontSize: '20px', color: 'white', cursor: 'pointer' }}></span>
           <span role="img" aria-label="menu" style={{ fontSize: '24px', color: 'white', cursor: 'pointer' }}></span>
         </div>

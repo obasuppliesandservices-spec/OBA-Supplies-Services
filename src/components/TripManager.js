@@ -216,8 +216,8 @@ export default function TripManager({ user, onLogout, onNavigate, jobOrders = []
   const activeTrips = (trips || [])
     .filter(trip => !completedTripIds.has(trip.id) && trip.tripStatus !== 'unsuccessful')
     .sort((a, b) => {
-      const timeA = new Date(a.createdDate || a.id || 0).getTime();
-      const timeB = new Date(b.createdDate || b.id || 0).getTime();
+      const timeA = new Date(a.createdAt || a.id || a.createdDate || 0).getTime();
+      const timeB = new Date(b.createdAt || b.id || b.createdDate || 0).getTime();
       return timeB - timeA;
     });
 
@@ -263,6 +263,7 @@ export default function TripManager({ user, onLogout, onNavigate, jobOrders = []
         ...newTrip,
         id: Date.now(),
         totalManpower,
+        createdAt: new Date().toISOString(),
         createdDate: new Date().toISOString().split('T')[0]
       };
       onAddTrip(tripData);
@@ -419,10 +420,11 @@ export default function TripManager({ user, onLogout, onNavigate, jobOrders = []
                 <p style={{ fontSize: '12px', color: '#bbb' }}>Completed trips will appear in history.</p>
               </div>
             ) : (
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '20px' }}>
+              <div className="trip-list" style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '20px' }}>
                 {activeTrips.map((trip) => (
                   <div
                     key={trip.id}
+                    className="trip-card"
                     style={{
                       backgroundColor: 'white',
                       borderRadius: '10px',
@@ -436,7 +438,7 @@ export default function TripManager({ user, onLogout, onNavigate, jobOrders = []
                     }}
                   >
                     {/* Truck Info */}
-                    <div style={{
+                    <div className="trip-details" style={{
                       backgroundColor: '#f9f9f9',
                       padding: '16px',
                       borderRadius: '8px'
@@ -459,7 +461,7 @@ export default function TripManager({ user, onLogout, onNavigate, jobOrders = []
                       flexDirection: 'column',
                       gap: '12px'
                     }}>
-                      <div style={{
+                      <div className="trip-crew" style={{
                         display: 'grid',
                         gridTemplateColumns: '1fr 1fr',
                         gap: '12px'

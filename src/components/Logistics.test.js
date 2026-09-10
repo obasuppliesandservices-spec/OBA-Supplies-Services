@@ -241,6 +241,16 @@ describe('getTruckArrivalTrips', () => {
       }
     ]);
   });
+
+  it('shows the newest created trips first in the truck arrival list', () => {
+    const result = getTruckArrivalTrips([
+      { id: 'trip-1', truckNumber: 'TRK-001', createdAt: '2026-07-01T08:00:00.000Z' },
+      { id: 'trip-2', truckNumber: 'TRK-002', createdAt: '2026-07-02T08:00:00.000Z' },
+      { id: 'trip-3', truckNumber: 'TRK-003', createdAt: '2026-07-03T08:00:00.000Z' }
+    ], []);
+
+    expect(result.map(trip => trip.id)).toEqual(['trip-3', 'trip-2', 'trip-1']);
+  });
 });
 
 describe('buildArrivalHistoryEntry', () => {

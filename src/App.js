@@ -30,6 +30,7 @@ export default function App() {
   const [role, setRole] = useStickyState(null, 'app_role');
   const [currentPage, setCurrentPage] = useStickyState('dashboard', 'app_currentPage');
   const [isRfidKioskMode, setIsRfidKioskMode] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(true);
   const [showLogin, setShowLogin] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [customerCarts, setCustomerCarts] = useState(() => {
@@ -590,8 +591,20 @@ export default function App() {
   }
 
   return (
-    <div className="app-root">
+    <div className={`app-root ${isMobileMenuOpen ? 'mobile-menu-open' : 'mobile-menu-collapsed'}`}>
       <Toaster position="top-center" reverseOrder={false} />
+      {user && role !== 'customer' && (
+        <button
+          type="button"
+          className="mobile-menu-toggle"
+          onClick={() => setIsMobileMenuOpen(previous => !previous)}
+          aria-label={isMobileMenuOpen ? 'Hide navigation menu' : 'Show navigation menu'}
+          aria-expanded={isMobileMenuOpen}
+          title={isMobileMenuOpen ? 'Hide navigation menu' : 'Show navigation menu'}
+        >
+          {isMobileMenuOpen ? '‹' : '☰'}
+        </button>
+      )}
       {!user && !showLogin ? (
         // use welcome page for a static introduction (Homepage kept for shopping flows)
         <WelcomePage

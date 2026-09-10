@@ -126,10 +126,10 @@ export default function Orderspage({ user, onAddToCart }) {
   );
 
   return (
-    <div style={{ padding: '20px 32px', maxWidth: '1400px', margin: '0 auto', position: 'relative' }}>
+    <div style={{ padding: '20px 32px', maxWidth: '1400px', margin: '0 auto', position: 'relative', display: 'flex', flexDirection: 'column' }}>
 
       {/* Services Section */}
-      <div style={{ marginBottom: '64px' }}>
+      <div style={{ marginBottom: '64px', order: 2 }}>
         <h2 style={{
           textAlign: 'center',
           marginBottom: '48px',
@@ -179,7 +179,7 @@ export default function Orderspage({ user, onAddToCart }) {
       </div>
 
       {/* Products Section */}
-      <div>
+      <div style={{ order: 1 }}>
         <h2 style={{
           textAlign: 'center',
           marginBottom: '48px',

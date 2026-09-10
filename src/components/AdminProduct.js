@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { persistItemList, readImageAsDataUrl } from '../storageUtils';
 
 const initialProducts = [
   {
@@ -71,7 +72,7 @@ export default function AdminProduct() {
   });
 
   useEffect(() => {
-    localStorage.setItem('adminProduct_products', JSON.stringify(products));
+    persistItemList('adminProduct_products', products);
   }, [products]);
 
   const handleAddProduct = () => {
@@ -114,13 +115,9 @@ export default function AdminProduct() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === 'string') {
-        setNewProduct((prev) => ({ ...prev, img: reader.result }));
-      }
-    };
-    reader.readAsDataURL(file);
+    readImageAsDataUrl(file).then((image) => {
+      setNewProduct((prev) => ({ ...prev, img: image }));
+    }).catch(() => {});
   };
 
   const handleCancel = () => {
