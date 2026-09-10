@@ -796,6 +796,54 @@ html, body, #root {
     grid-template-columns: 1fr;
   }
 
+  .customer-accounts-content {
+    min-width: 0;
+  }
+
+  .customer-accounts-toolbar {
+    align-items: stretch !important;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .customer-accounts-toolbar > button {
+    width: 100%;
+  }
+
+  .customer-accounts-table-wrap {
+    max-width: 100%;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .customer-accounts-table {
+    min-width: 760px;
+  }
+
+  .customer-account-actions-cell {
+    vertical-align: middle;
+  }
+
+  .customer-account-actions {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .customer-account-actions button {
+    width: 78px;
+    margin: 0 !important;
+  }
+
+  .customer-account-form-actions {
+    flex-direction: column;
+  }
+
+  .customer-account-form-actions button {
+    width: 100%;
+  }
+
   .analytics-toolbar,
   .analytics-report-header,
   .analytics-report-controls {

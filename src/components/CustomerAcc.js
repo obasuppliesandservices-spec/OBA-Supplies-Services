@@ -141,8 +141,8 @@ export default function CustomerAcc({ user, onLogout, onNavigate }) {
           </header>
 
           <section className="settings-section">
-            <div style={{ marginBottom: '30px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <div className="customer-accounts-content" style={{ marginBottom: '30px' }}>
+              <div className="customer-accounts-toolbar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
                 <div>
                   <h2 style={{ margin: 0, color: '#333', fontSize: '24px' }}></h2>
                 </div>
@@ -296,7 +296,7 @@ export default function CustomerAcc({ user, onLogout, onNavigate }) {
                       />
                     </div>
 
-                    <div style={{ display: 'flex', gap: '12px', marginTop: '18px' }}>
+                    <div className="customer-account-form-actions" style={{ display: 'flex', gap: '12px', marginTop: '18px' }}>
                       <button
                         type="submit"
                         style={{
@@ -332,13 +332,13 @@ export default function CustomerAcc({ user, onLogout, onNavigate }) {
               </div>
               )}
 
-              <div style={{
+              <div className="customer-accounts-table-wrap" style={{
                 backgroundColor: '#f9f9f9',
                 borderRadius: '8px',
                 border: '1px solid #e8e8e8',
                 overflow: 'hidden'
               }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <table className="customer-accounts-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
                   <thead>
                     <tr style={{ backgroundColor: '#e3f2fd', borderBottom: '2px solid #ddd' }}>
                       <th style={{ padding: '12px', textAlign: 'left', fontWeight: 'bold', color: '#333' }}>Name</th>
@@ -368,7 +368,8 @@ export default function CustomerAcc({ user, onLogout, onNavigate }) {
                           </span>
                         </td>
                         <td style={{ padding: '12px', color: '#999', fontSize: '13px' }}>{customer.createdDate}</td>
-                        <td style={{ padding: '12px', textAlign: 'center' }}>
+                        <td className="customer-account-actions-cell" style={{ padding: '12px', textAlign: 'center' }}>
+                          <div className="customer-account-actions">
                           <button
                             onClick={() => toggleCustomerStatus(customer.id)}
                             style={{
@@ -379,7 +380,7 @@ export default function CustomerAcc({ user, onLogout, onNavigate }) {
                               borderRadius: '4px',
                               cursor: 'pointer',
                               fontSize: '12px',
-                              marginRight: '5px'
+                              minWidth: '78px'
                             }}
                           >
                             {customer.status === 'Active' ? 'Disable' : 'Enable'}
@@ -393,11 +394,13 @@ export default function CustomerAcc({ user, onLogout, onNavigate }) {
                               border: 'none',
                               borderRadius: '4px',
                               cursor: 'pointer',
-                              fontSize: '12px'
+                              fontSize: '12px',
+                              minWidth: '78px'
                             }}
                           >
                             Delete
                           </button>
+                          </div>
                         </td>
                       </tr>
                     ))}
