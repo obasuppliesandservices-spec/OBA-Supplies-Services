@@ -209,6 +209,12 @@ export default function ReportsAnalytics({
           ? deliveryDates.find(isDateValueInReport) || order.startDate
           : deliveryDates[0] || order.startDate
       };
+    }).sort((firstReport, secondReport) => {
+      const firstDate = new Date(firstReport.reportDate || 0).getTime();
+      const secondDate = new Date(secondReport.reportDate || 0).getTime();
+      const normalizedFirstDate = Number.isNaN(firstDate) ? 0 : firstDate;
+      const normalizedSecondDate = Number.isNaN(secondDate) ? 0 : secondDate;
+      return normalizedSecondDate - normalizedFirstDate;
     });
   }, [filteredJobOrders, events, trips, doneDeliveries, unsuccessfulDeliveries, filteredDoneDeliveries, filteredUnsuccessfulDeliveries, reportDate, completedJobOrderIds, unsuccessfulJobOrderIds, onTripJobOrderIds]);
 
@@ -276,17 +282,17 @@ export default function ReportsAnalytics({
   const chartYTicks = reportDate ? [0, 5, 10, 15, 20, 25] : [0, 50, 100, 150, 200];
 
   const handleGenerateReport = () => {
-    const completedDeliveries = doneDeliveries.filter(delivery => delivery.status !== 'completion');
-    const endedJobOrders = doneDeliveries.filter(delivery => delivery.status === 'completion');
-    const totalDeliveryItems = [...completedDeliveries, ...unsuccessfulDeliveries];
+    const completedDeliveries = filteredDoneDeliveries;
+    const endedJobOrders = doneDeliveries.filter(delivery => delivery.status === 'completion' && isDateInReport(delivery));
+    const totalDeliveryItems = [...completedDeliveries, ...filteredUnsuccessfulDeliveries];
     const getItemType = (item) => item.jobType || item.type || item.serviceType || 'Delivery';
     const escapeCell = (value) => String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    const maxItems = Math.max(totalDeliveryItems.length, completedDeliveries.length, unsuccessfulDeliveries.length, endedJobOrders.length, 1);
+    const maxItems = Math.max(totalDeliveryItems.length, completedDeliveries.length, filteredUnsuccessfulDeliveries.length, endedJobOrders.length, 1);
     const itemRows = Array.from({ length: maxItems }, (_, index) => {
       const getCells = (items) => items[index]
         ? `<td>${index + 1}. ${escapeCell(getItemType(items[index]))}</td>`
         : '<td></td>';
-      return `<tr>${getCells(totalDeliveryItems)}${getCells(completedDeliveries)}${getCells(unsuccessfulDeliveries)}${getCells(endedJobOrders)}</tr>`;
+      return `<tr>${getCells(totalDeliveryItems)}${getCells(completedDeliveries)}${getCells(filteredUnsuccessfulDeliveries)}${getCells(endedJobOrders)}</tr>`;
     }).join('');
     const reportDate = new Date().toLocaleDateString();
     const report = `
@@ -317,7 +323,7 @@ export default function ReportsAnalytics({
   const mainContent = (
     <div style={{ padding: '20px 0', animation: 'fadeIn 0.2s' }}>
       {/* Top Filter and Actions Bar */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', backgroundColor: 'white', padding: '16px 24px', borderRadius: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.03)' }}>
+      <div className="analytics-toolbar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', backgroundColor: 'white', padding: '16px 24px', borderRadius: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.03)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <span style={{ fontWeight: 'bold', color: '#333', fontSize: '14px' }}>📅 Filter Window:</span>
           <select
@@ -332,6 +338,7 @@ export default function ReportsAnalytics({
         </div>
 
         <button
+          className="report-generate-button"
           onClick={handleGenerateReport}
           style={{ padding: '10px 20px', backgroundColor: '#04ab0c', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '8px' }}
         >
@@ -340,7 +347,7 @@ export default function ReportsAnalytics({
       </div>
 
       {/* KPI Cards Section */}
-      <section className="stats-section" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '20px', marginBottom: '24px' }}>
+      <section className="stats-section analytics-stats" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '20px', marginBottom: '24px' }}>
         <div className="stat-card" style={{ backgroundColor: '#fff', borderRadius: '14px', padding: '22px', boxShadow: '0 4px 16px rgba(0,0,0,0.04)', borderLeft: '4px solid #1976d2' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span style={{ fontSize: '14px', color: '#666', fontWeight: '600' }}>Total Shipments</span>
@@ -381,9 +388,9 @@ export default function ReportsAnalytics({
       </section>
 
       {/* Main Charts & Visual Highlights */}
-      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '24px', marginBottom: '28px' }}>
+      <div className="analytics-highlights" style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '24px', marginBottom: '28px' }}>
         {/* Shipment & Delivery Volume Trends */}
-        <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '24px', boxShadow: '0 4px 20px rgba(0,0,0,0.04)' }}>
+        <div className="analytics-panel" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '24px', boxShadow: '0 4px 20px rgba(0,0,0,0.04)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
             <div>
               <h3 style={{ margin: 0, fontSize: '18px', color: '#333' }}>📊 Shipment & Delivery Trends</h3>
@@ -449,7 +456,7 @@ export default function ReportsAnalytics({
         </div>
 
         {/* Client Locations Distribution */}
-        <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '24px', boxShadow: '0 4px 20px rgba(0,0,0,0.04)' }}>
+        <div className="analytics-panel" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '24px', boxShadow: '0 4px 20px rgba(0,0,0,0.04)' }}>
           <h3 style={{ margin: '0 0 4px 0', fontSize: '18px', color: '#333' }}>📍 Client Location Distribution</h3>
           <p style={{ margin: '0 0 20px 0', color: '#777', fontSize: '13px' }}>Most active delivery destinations.</p>
 
@@ -475,13 +482,13 @@ export default function ReportsAnalytics({
       </div>
 
       {/* Length of Travel & Destination Log Table */}
-      <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '24px', boxShadow: '0 4px 20px rgba(0,0,0,0.04)' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+      <div className="analytics-report-panel" style={{ backgroundColor: 'white', borderRadius: '16px', padding: '24px', boxShadow: '0 4px 20px rgba(0,0,0,0.04)' }}>
+        <div className="analytics-report-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
           <div>
             <h3 style={{ margin: 0, fontSize: '18px', color: '#333' }}>🛣️ Shipment Travel Length & Client Locations Report</h3>
             <p style={{ margin: '4px 0 0', color: '#777', fontSize: '13px' }}>Detailed breakdown of delivery distance, travel time, assigned vehicle, and destination location.</p>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+          <div className="analytics-report-controls" style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: '#555', fontWeight: '600' }}>
               Choose Date:
               <input
@@ -502,8 +509,8 @@ export default function ReportsAnalytics({
           </div>
         </div>
 
-        <div style={{ maxHeight: '420px', overflow: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+        <div className="analytics-table-wrap" style={{ maxHeight: '420px', overflow: 'auto' }}>
+          <table className="analytics-table" style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
             <thead style={{ position: 'sticky', top: 0, zIndex: 1, backgroundColor: '#f9f9f9' }}>
               <tr style={{ backgroundColor: '#f9f9f9', borderBottom: '2px solid #eee' }}>
                 <th style={{ padding: '12px 14px', color: '#555', fontSize: '13px' }}>Client / Customer</th>
