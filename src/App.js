@@ -244,8 +244,8 @@ export default function App() {
     setCustomerNotificationsByUser(prev => ({ ...prev, [currentCustomerKey]: newNotifications }));
   };
 
-  function handleLogin({ email, role, name }) {
-    setUser({ name: name || (role === 'logistics' ? 'Logistics' : role === 'admin' ? 'Admin' : email), email });
+  function handleLogin({ email, role, name, company, contactNumber, address }) {
+    setUser({ name: name || (role === 'logistics' ? 'Logistics' : role === 'admin' ? 'Admin' : email), email, company: company || '', contactNumber: contactNumber || '', address: address || '' });
     setRole(role);
     // Route admin users to the admin panel, others to dashboard
     setCurrentPage(role === 'admin' ? 'adminadddelete' : 'dashboard');

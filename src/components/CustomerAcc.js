@@ -7,9 +7,11 @@ export default function CustomerAcc({ user, onLogout, onNavigate }) {
   const [customers, setCustomers] = useState([]);
   const [showNewCustomerForm, setShowNewCustomerForm] = useState(false);
   const [newCustomer, setNewCustomer] = useState({
-    name: '',
-    email: '',
     company: '',
+    name: '',
+    address: '',
+    contactNumber: '',
+    email: '',
     password: '',
     confirmPassword: ''
   });
@@ -37,7 +39,7 @@ export default function CustomerAcc({ user, onLogout, onNavigate }) {
   const handleAddCustomer = (e) => {
     e.preventDefault();
 
-    if (!newCustomer.name || !newCustomer.email || !newCustomer.company || !newCustomer.password) {
+    if (!newCustomer.company || !newCustomer.name || !newCustomer.address || !newCustomer.contactNumber || !newCustomer.email || !newCustomer.password) {
       toast.error('Please fill in all fields');
       return;
     }
@@ -52,17 +54,21 @@ export default function CustomerAcc({ user, onLogout, onNavigate }) {
     const addedEmail = newCustomer.email;
 
     set(newCustomerRef, {
-      name: newCustomer.name,
-      email: newCustomer.email,
       company: newCustomer.company,
+      name: newCustomer.name,
+      address: newCustomer.address,
+      contactNumber: newCustomer.contactNumber,
+      email: newCustomer.email,
       password: newCustomer.password,
       status: 'Active',
       createdDate: new Date().toISOString().split('T')[0]
     }).then(() => {
       setNewCustomer({
-        name: '',
-        email: '',
         company: '',
+        name: '',
+        address: '',
+        contactNumber: '',
+        email: '',
         password: '',
         confirmPassword: ''
       });
@@ -207,12 +213,66 @@ export default function CustomerAcc({ user, onLogout, onNavigate }) {
                     <h3 style={{ marginBottom: '15px', color: '#333' }}>New Customer Account</h3>
                     <form onSubmit={handleAddCustomer}>
                     <div style={{ marginBottom: '15px' }}>
-                      <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px', color: '#333' }}>Customer Name *</label>
+                      <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px', color: '#333' }}>Company *</label>
+                      <input
+                        type="text"
+                        value={newCustomer.company}
+                        onChange={(e) => setNewCustomer({ ...newCustomer, company: e.target.value })}
+                        placeholder="Enter company name"
+                        style={{
+                          width: '100%',
+                          padding: '10px',
+                          borderRadius: '4px',
+                          border: '1px solid #ddd',
+                          fontSize: '14px',
+                          boxSizing: 'border-box'
+                        }}
+                      />
+                    </div>
+
+                    <div style={{ marginBottom: '15px' }}>
+                      <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px', color: '#333' }}>Full Name *</label>
                       <input
                         type="text"
                         value={newCustomer.name}
                         onChange={(e) => setNewCustomer({ ...newCustomer, name: e.target.value })}
-                        placeholder="Enter customer name"
+                        placeholder="Enter customer full name"
+                        style={{
+                          width: '100%',
+                          padding: '10px',
+                          borderRadius: '4px',
+                          border: '1px solid #ddd',
+                          fontSize: '14px',
+                          boxSizing: 'border-box'
+                        }}
+                      />
+                    </div>
+
+                    <div style={{ marginBottom: '15px' }}>
+                      <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px', color: '#333' }}>Complete Address *</label>
+                      <input
+                        type="text"
+                        value={newCustomer.address}
+                        onChange={(e) => setNewCustomer({ ...newCustomer, address: e.target.value })}
+                        placeholder="Enter complete address"
+                        style={{
+                          width: '100%',
+                          padding: '10px',
+                          borderRadius: '4px',
+                          border: '1px solid #ddd',
+                          fontSize: '14px',
+                          boxSizing: 'border-box'
+                        }}
+                      />
+                    </div>
+
+                    <div style={{ marginBottom: '15px' }}>
+                      <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px', color: '#333' }}>Contact No. *</label>
+                      <input
+                        type="tel"
+                        value={newCustomer.contactNumber}
+                        onChange={(e) => setNewCustomer({ ...newCustomer, contactNumber: e.target.value })}
+                        placeholder="Enter contact number"
                         style={{
                           width: '100%',
                           padding: '10px',
@@ -231,24 +291,6 @@ export default function CustomerAcc({ user, onLogout, onNavigate }) {
                         value={newCustomer.email}
                         onChange={(e) => setNewCustomer({ ...newCustomer, email: e.target.value })}
                         placeholder="Enter customer email"
-                        style={{
-                          width: '100%',
-                          padding: '10px',
-                          borderRadius: '4px',
-                          border: '1px solid #ddd',
-                          fontSize: '14px',
-                          boxSizing: 'border-box'
-                        }}
-                      />
-                    </div>
-
-                    <div style={{ marginBottom: '15px' }}>
-                      <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px', color: '#333' }}>Company *</label>
-                      <input
-                        type="text"
-                        value={newCustomer.company}
-                        onChange={(e) => setNewCustomer({ ...newCustomer, company: e.target.value })}
-                        placeholder="Enter company name"
                         style={{
                           width: '100%',
                           padding: '10px',

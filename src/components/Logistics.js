@@ -370,7 +370,7 @@ export const getNextHigherCapacityTruck = (currentTruckIdentifier, requiredWeigh
   return sortedTrucks[sortedTrucks.length - 1];
 };
 
-export const getTripPrefillData = ({ selectedTruck = '', assignedManpower = [], processingJobOrder = null, employees = [] } = {}) => {
+export const getTripPrefillData = ({ selectedTruck = '', assignedManpower = [], processingJobOrder = null, employees = [], trips = [], arrivedTripIds = [] } = {}) => {
   let empList = employees;
   if (!Array.isArray(empList) || empList.length === 0) {
     try {
@@ -386,19 +386,9 @@ export const getTripPrefillData = ({ selectedTruck = '', assignedManpower = [], 
   const truckNumber = truckMatch ? truckMatch[1].trim() : selectedTruck.split(' ')[0] || '';
   const truckType = truckMatch ? truckMatch[2].trim() : selectedTruck.replace(truckNumber, '').trim().replace(/^\(|\)$/g, '') || '';
 
-  // Only present employees in Driver/Pahinante department
-  const presentDrivers = (empList || [])
-    .filter(emp => emp && emp.name && emp.status === 'Present' && emp.department === 'Driver/Pahinante')
-    .map(emp => emp.name);
-
-  // Fallback to any present employees if no specific Driver/Pahinante department list
-  const presentEmployees = (empList || [])
-    .filter(emp => emp && emp.name && emp.status === 'Present')
-    .map(emp => emp.name);
-
-  const candidateNames = presentDrivers.length > 0 ? presentDrivers : presentEmployees;
-  const driver = candidateNames[0] || '';
-  const pahintate = candidateNames[1] || candidateNames[0] || '';
+  // Reuse the same automatic Driver & Pahinante selection shown in Step 1 of the
+  // delivery process, so the Trip Manager prefill always matches what was displayed.
+  const { driver, pahintate } = getAutoSelectedDriverPahinante(empList, trips, arrivedTripIds);
 
   return {
     truckNumber,
@@ -563,6 +553,7 @@ export default function Logistics({ user, onLogout, onNavigate, events, onMarkDo
   const [showArrivalHistory, setShowArrivalHistory] = useState(false);
   const [tripHistory, setTripHistory] = useStickyState([], 'app_tripHistory');
   const [showTripHistory, setShowTripHistory] = useState(false);
+  const [ticketTrip, setTicketTrip] = useState(null);
 
   useEffect(() => {
     if (Array.isArray(propEmployees) && propEmployees.length > 0) {
@@ -719,10 +710,6 @@ export default function Logistics({ user, onLogout, onNavigate, events, onMarkDo
   // Deliveries Process State
   const [processingJobOrder, setProcessingJobOrder] = useFirebaseSync('active_logistics_session/processingJobOrder', null);
   const [processStep, setProcessStep] = useFirebaseSync('active_logistics_session/processStep', 1);
-  const [visualZoom, setVisualZoom] = useState(1.2);
-  const [visualPan, setVisualPan] = useState({ x: 0, y: 0 });
-  const [isDraggingTruck, setIsDraggingTruck] = useState(false);
-  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [deliveryData, setDeliveryData] = useFirebaseSync('active_logistics_session/deliveryData', {
     assignedManpower: [],
     scannedEquipment: [],
@@ -731,6 +718,8 @@ export default function Logistics({ user, onLogout, onNavigate, events, onMarkDo
     placedItems: {}
   });
   const [scannerState, setScannerState] = useState('disconnected'); // 'disconnected', 'connecting', 'connected', 'scanning'
+  const [manualSelectItemId, setManualSelectItemId] = useState('');
+  const [manualSelectQty, setManualSelectQty] = useState(1);
 
   const [modalOpen, setModalOpen] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
@@ -754,7 +743,7 @@ export default function Logistics({ user, onLogout, onNavigate, events, onMarkDo
   }, [showNotifications]);
 
   useEffect(() => {
-    if (!processingJobOrder || processStep !== 1) return;
+    if (!processingJobOrder || processStep !== 2) return;
     const currentAssigned = deliveryData?.assignedManpower || [];
     const activeEmployees = employees && employees.length > 0 ? employees : (() => {
       try {
@@ -765,15 +754,19 @@ export default function Logistics({ user, onLogout, onNavigate, events, onMarkDo
     })();
 
     if (currentAssigned.length === 0 && activeEmployees.length > 0) {
-      const autoAssigned = getAutoAssignedManpower(activeEmployees, processingJobOrder.manpower || 0);
+      const requiredManpower = Number(deliveryData?.manpowerNeeded) || Number(processingJobOrder.manpower) || 0;
+      const autoAssigned = getAutoAssignedManpower(activeEmployees, requiredManpower);
       if (autoAssigned.length > 0) {
         setDeliveryData(prev => ({ ...(prev || {}), assignedManpower: autoAssigned }));
+        toast.success(`${autoAssigned.length} present worker${autoAssigned.length > 1 ? 's' : ''} auto-assigned for this delivery.`);
+      } else {
+        toast.error('No present employees are currently available for this delivery.');
       }
     }
-  }, [processingJobOrder, processStep, employees, deliveryData?.assignedManpower]);
+  }, [processingJobOrder, processStep, employees, deliveryData?.assignedManpower, deliveryData?.manpowerNeeded]);
 
   useEffect(() => {
-    if (!processingJobOrder || processStep !== 2 || deliveryData?.selectedTruck) return;
+    if (!processingJobOrder || processStep !== 3 || deliveryData?.selectedTruck) return;
     if (!deliveryData?.assignedManpower?.length) return;
 
     const scannedWeight = (deliveryData?.scannedEquipment || []).reduce((sum, item) => sum + ((item.weight || 15) * item.scanQty), 0);
@@ -1603,27 +1596,25 @@ export default function Logistics({ user, onLogout, onNavigate, events, onMarkDo
                           <div>
                             <div style={{ fontWeight: 'bold', fontSize: '16px', color: '#333', marginBottom: '4px' }}>{order.jobType}</div>
                             <div style={{ fontSize: '13px', color: '#666' }}>{order.customerName} - {order.company}</div>
-                            <div style={{ fontSize: '12px', color: '#999', marginTop: '4px' }}>📅 {order.startDate || 'No date'} | 👥 {order.manpower} Workers Needed</div>
+                            <div style={{ fontSize: '12px', color: '#999', marginTop: '4px' }}>📅 {order.startDate || 'Schedule not set'} | 👥 {order.manpower || 'To be scheduled'}</div>
                           </div>
-                          <button 
+                          <button
                             onClick={() => {
-                              const activeEmployees = employees && employees.length > 0 ? employees : (() => {
-                                try {
-                                  const cached = localStorage.getItem('app_employees_cache');
-                                  if (cached) return JSON.parse(cached);
-                                } catch (e) {}
-                                return [];
-                              })();
-                              const autoAssigned = getAutoAssignedManpower(activeEmployees, order.manpower || 0);
                               setProcessingJobOrder(order);
                               setProcessStep(1);
-                              setDeliveryData({ assignedManpower: autoAssigned, scannedEquipment: [], selectedTruck: '', maxWeight: 0, placedItems: {} });
+                              setDeliveryData({
+                                assignedManpower: [],
+                                scannedEquipment: [],
+                                selectedTruck: '',
+                                maxWeight: 0,
+                                placedItems: {},
+                                manpowerNeeded: order.manpower || '',
+                                contractLength: order.contractLength || '1 Month',
+                                startDate: order.startDate || '',
+                                endDate: order.endDate || '',
+                                deliveryDate: ''
+                              });
                               setScannerState('disconnected');
-                              if (autoAssigned.length > 0) {
-                                toast.success(`${autoAssigned.length} present worker${autoAssigned.length > 1 ? 's' : ''} auto-assigned for this delivery.`);
-                              } else {
-                                toast.error('No present employees are currently available for this delivery.');
-                              }
                             }}
                             style={{ padding: '10px 20px', backgroundColor: '#04ab0c', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', transition: 'all 0.2s' }}
                             onMouseEnter={e => Object.assign(e.currentTarget.style, { backgroundColor: '#038c0a', transform: 'translateY(-2px)', boxShadow: '0 4px 8px rgba(4,171,12,0.2)' })}
@@ -1649,8 +1640,8 @@ export default function Logistics({ user, onLogout, onNavigate, events, onMarkDo
                   {/* Stepper Header */}
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '40px', position: 'relative', padding: '0 20px' }}>
                     <div style={{ position: 'absolute', top: '15px', left: '40px', right: '40px', height: '3px', backgroundColor: '#eee', zIndex: 0 }}></div>
-                    <div style={{ position: 'absolute', top: '15px', left: '40px', right: '40px', height: '3px', backgroundColor: '#04ab0c', zIndex: 0, width: `${(processStep - 1)* 23.3}%`, transition: 'width 0.3s ease' }}></div>
-                    {['Manpower', 'Equipment', 'Truck', 'Draft', 'Receipt'].map((stepName, i) => (
+                    <div style={{ position: 'absolute', top: '15px', left: '40px', right: '40px', height: '3px', backgroundColor: '#04ab0c', zIndex: 0, width: `${((processStep - 1) / (5 - 1)) * 93.2}%`, transition: 'width 0.3s ease' }}></div>
+                    {['Scheduling', 'Manpower', 'Equipment', 'Truck', 'Receipt'].map((stepName, i) => (
                       <div key={stepName} style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
                         <div style={{ width: '32px', height: '32px', borderRadius: '50%', backgroundColor: processStep > i + 1 ? '#04ab0c' : processStep === i + 1 ? '#2196F3' : '#fff', border: processStep >= i + 1 ? 'none' : '3px solid #ddd', color: processStep >= i + 1 ? '#fff' : '#999', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', fontSize: '14px', boxShadow: processStep === i + 1 ? '0 0 0 6px rgba(33, 150, 243, 0.15)' : 'none', transition: 'all 0.3s ease' }}>
                           {processStep > i + 1 ? '✓' : i + 1}
@@ -1662,51 +1653,139 @@ export default function Logistics({ user, onLogout, onNavigate, events, onMarkDo
 
                   {/* Wizard Content */}
                   <div style={{ minHeight: '350px' }}>
-                    {processStep === 1 && (
+                    {processStep === 1 && (() => {
+                      const calcEndDate = (startDateStr, contractLength) => {
+                        if (!startDateStr) return '';
+                        const [y, m, d] = startDateStr.split('-').map(Number);
+                        if (!y || !m || !d) return '';
+                        const end = new Date(y, m - 1, d);
+                        if (contractLength === '1 Week') end.setDate(end.getDate() + 7);
+                        else if (contractLength === '2 Weeks') end.setDate(end.getDate() + 14);
+                        else if (contractLength === '1 Month') end.setMonth(end.getMonth() + 1);
+                        else if (contractLength === '3 Months') end.setMonth(end.getMonth() + 3);
+                        else if (contractLength === '6 Months') end.setMonth(end.getMonth() + 6);
+                        else if (contractLength === '1 Year') end.setFullYear(end.getFullYear() + 1);
+                        else return '';
+                        const yyyy = end.getFullYear();
+                        const mm = String(end.getMonth() + 1).padStart(2, '0');
+                        const dd = String(end.getDate()).padStart(2, '0');
+                        return `${yyyy}-${mm}-${dd}`;
+                      };
+
+                      const handleSchedulingChange = (field, value) => {
+                        setDeliveryData(prev => {
+                          const next = { ...(prev || {}), [field]: value };
+                          if (field === 'contractLength') {
+                            next.endDate = calcEndDate(next.startDate, value);
+                          } else if (field === 'startDate') {
+                            next.endDate = calcEndDate(value, next.contractLength);
+                          }
+                          return next;
+                        });
+                      };
+
+                      const canProceed = !!(deliveryData?.deliveryDate && deliveryData?.startDate && deliveryData?.contractLength && Number(deliveryData?.manpowerNeeded) > 0);
+                      const inputStyle = { width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #ddd', fontSize: '14px', boxSizing: 'border-box' };
+                      const labelStyle = { display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: '600', color: '#333' };
+
+                      return (
                       <div style={{ animation: 'fadeIn 0.3s' }}>
-                        <h3 style={{ fontSize: '18px', marginBottom: '16px', color: '#333' }}>Step 1: Assign Manpower</h3>
-                        <p style={{ color: '#666', fontSize: '14px', marginBottom: '24px' }}>This job order requires <strong>{processingJobOrder.manpower} workers</strong>. Present employees are auto-assigned first, and you can still add or remove workers manually below.</p>
+                        <h3 style={{ fontSize: '18px', marginBottom: '16px', color: '#333' }}>Step 1: Scheduling</h3>
+                        <p style={{ color: '#666', fontSize: '14px', marginBottom: '24px' }}>Set the delivery date and the contract schedule for this job order before assigning manpower and equipment.</p>
+
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '24px' }}>
+                          <div>
+                            <label style={labelStyle}>Date to Deliver</label>
+                            <input type="date" value={deliveryData?.deliveryDate || ''} onChange={(e) => handleSchedulingChange('deliveryDate', e.target.value)} style={inputStyle} />
+                            <small style={{ color: '#999', marginTop: '4px', display: 'block' }}>Date this job order will be delivered.</small>
+                          </div>
+
+                          <div>
+                            <label style={labelStyle}>Number of Manpower Needed</label>
+                            <input
+                              type="number"
+                              min="1"
+                              value={deliveryData?.manpowerNeeded ?? ''}
+                              onChange={(e) => handleSchedulingChange('manpowerNeeded', Math.max(1, parseInt(e.target.value) || 1))}
+                              style={inputStyle}
+                            />
+                          </div>
+
+                          <div>
+                            <label style={labelStyle}>Start Date of Contract</label>
+                            <input type="date" value={deliveryData?.startDate || ''} onChange={(e) => handleSchedulingChange('startDate', e.target.value)} style={inputStyle} />
+                          </div>
+
+                          <div>
+                            <label style={labelStyle}>End Date of Contract (Auto-calculated)</label>
+                            <input
+                              type="date"
+                              value={deliveryData?.endDate || ''}
+                              disabled
+                              style={{ ...inputStyle, backgroundColor: '#f5f5f5', color: '#666', cursor: 'not-allowed' }}
+                            />
+                            <small style={{ color: '#999', marginTop: '4px', display: 'block' }}>Updates automatically based on Start Date and Contract Length</small>
+                          </div>
+
+                          <div>
+                            <label style={labelStyle}>Contract Length</label>
+                            <select value={deliveryData?.contractLength || '1 Month'} onChange={(e) => handleSchedulingChange('contractLength', e.target.value)} style={inputStyle}>
+                              <option value="1 Week">1 Week</option>
+                              <option value="2 Weeks">2 Weeks</option>
+                              <option value="1 Month">1 Month</option>
+                              <option value="3 Months">3 Months</option>
+                              <option value="6 Months">6 Months</option>
+                              <option value="1 Year">1 Year</option>
+                            </select>
+                          </div>
+                        </div>
+
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', borderTop: '1px solid #eee', paddingTop: '20px' }}>
+                          <button
+                            onClick={() => {
+                              if (!canProceed) {
+                                toast.error('Please set the delivery date, contract schedule, and manpower needed.');
+                                return;
+                              }
+                              setProcessStep(2);
+                            }}
+                            style={{ padding: '12px 28px', backgroundColor: '#04ab0c', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', fontSize: '15px' }}
+                          >
+                            Next: Assign Manpower ➜
+                          </button>
+                        </div>
+                      </div>
+                      );
+                    })()}
+
+                    {processStep === 2 && (
+                      <div style={{ animation: 'fadeIn 0.3s' }}>
+                        <h3 style={{ fontSize: '18px', marginBottom: '16px', color: '#333' }}>Step 2: Assign Manpower</h3>
+                        <p style={{ color: '#666', fontSize: '14px', marginBottom: '24px' }}>This job order requires <strong>{deliveryData?.manpowerNeeded || processingJobOrder.manpower} worker(s)</strong>. Present employees are auto-assigned, and the Driver &amp; Pahinante are automatically selected based on who is present. You can still remove auto-assigned manpower below if needed.</p>
                         <div style={{ display: 'flex', gap: '24px', marginBottom: '24px', minHeight: '300px' }}>
                           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', border: '1px solid #eee', borderRadius: '8px', overflow: 'hidden' }}>
-                            <div style={{ padding: '12px', backgroundColor: '#f9f9f9', borderBottom: '1px solid #eee', fontWeight: 'bold' }}>Available Present Employees</div>
+                            <div style={{ padding: '12px', backgroundColor: '#f9f9f9', borderBottom: '1px solid #eee', fontWeight: 'bold' }}>Driver &amp; Pahinante (Auto-selected from Present Staff)</div>
                             <div style={{ flex: 1, overflowY: 'auto', maxHeight: '300px' }}>
                               {(() => {
-                                const activeEmployees = employees && employees.length > 0 ? employees : (() => {
-                                  try {
-                                    const cached = localStorage.getItem('app_employees_cache');
-                                    if (cached) return JSON.parse(cached);
-                                  } catch (e) {}
-                                  return [];
-                                })();
-                                const assigned = deliveryData?.assignedManpower || [];
-                                const availablePresent = activeEmployees.filter(emp => emp && emp.name && emp.status === 'Present' && emp.department !== 'Driver/Pahinante' && !assigned.includes(emp.name));
+                                const { driver, pahintate } = getAutoSelectedDriverPahinante(employees, activeTrips, arrivedTripIds);
+                                const roles = [
+                                  { label: 'Driver', value: driver },
+                                  { label: 'Pahinante', value: pahintate }
+                                ];
 
-                                return availablePresent.length > 0 ? (
-                                  availablePresent.map(emp => (
-                                    <div key={emp.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', borderBottom: '1px solid #eee' }}>
-                                      <div>
-                                        <div style={{ fontWeight: 'bold', color: '#333' }}>{emp.name}</div>
-                                        <div style={{ fontSize: '12px', color: '#4CAF50', fontWeight: '500' }}>
-                                          ● Present
-                                        </div>
-                                      </div>
-                                      <button 
-                                        onClick={() => setDeliveryData(prev => ({ ...prev, assignedManpower: [...(prev?.assignedManpower || []), emp.name] }))}
-                                        style={{ padding: '4px 12px', backgroundColor: '#2196F3', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', transition: 'background-color 0.2s' }}
-                                        onMouseEnter={e => e.currentTarget.style.backgroundColor = '#1976D2'}
-                                        onMouseLeave={e => e.currentTarget.style.backgroundColor = '#2196F3'}
-                                      >
-                                        Add
-                                      </button>
-                                    </div>
-                                  ))
-                                ) : (
-                                  <div style={{ padding: '20px', textAlign: 'center', color: '#999' }}>No present employees available.</div>
-                                );
+                                return roles.map(role => (
+                                  <div key={role.label} style={{ padding: '10px 12px', borderBottom: '1px solid #eee' }}>
+                                    <div style={{ fontSize: '12px', color: '#999', marginBottom: '4px' }}>{role.label}</div>
+                                    <div style={{ fontWeight: 'bold', color: role.value ? '#333' : '#999' }}>{role.value || 'No present employee available'}</div>
+                                    {role.value && (
+                                      <div style={{ fontSize: '12px', color: '#4CAF50', fontWeight: '500' }}>● Present</div>
+                                    )}
+                                  </div>
+                                ));
                               })()}
                             </div>
                           </div>
-                          
+
                           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', border: '1px solid #eee', borderRadius: '8px', overflow: 'hidden' }}>
                             <div style={{ padding: '12px', backgroundColor: '#e8f5e9', borderBottom: '1px solid #eee', fontWeight: 'bold', color: '#04ab0c' }}>Selected Manpower</div>
                             <div style={{ flex: 1, overflowY: 'auto', maxHeight: '300px' }}>
@@ -1737,41 +1816,19 @@ export default function Logistics({ user, onLogout, onNavigate, events, onMarkDo
                           </div>
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid #eee', paddingTop: '20px' }}>
-                          <span style={{ fontSize: '14px', color: '#666', backgroundColor: '#f5f5f5', padding: '8px 16px', borderRadius: '20px' }}>Selected: <strong style={{ color: deliveryData.assignedManpower.length >= processingJobOrder.manpower ? '#04ab0c' : '#333' }}>{deliveryData.assignedManpower.length}</strong> / {processingJobOrder.manpower}</span>
-                          <button onClick={() => setProcessStep(2)} style={{ padding: '12px 28px', backgroundColor: '#04ab0c', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', fontSize: '15px' }}>Next: Equipment Scanning ➜</button>
+                          <span style={{ fontSize: '14px', color: '#666', backgroundColor: '#f5f5f5', padding: '8px 16px', borderRadius: '20px' }}>Selected: <strong style={{ color: deliveryData.assignedManpower.length >= (deliveryData?.manpowerNeeded || processingJobOrder.manpower) ? '#04ab0c' : '#333' }}>{deliveryData.assignedManpower.length}</strong> / {deliveryData?.manpowerNeeded || processingJobOrder.manpower}</span>
+                          <button onClick={() => setProcessStep(3)} style={{ padding: '12px 28px', backgroundColor: '#04ab0c', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', fontSize: '15px' }}>Next: Equipment Scanning ➜</button>
                         </div>
                       </div>
                     )}
 
-                    {processStep === 2 && (() => {
+                    {processStep === 3 && (() => {
                       const scannedList = deliveryData?.scannedEquipment || [];
-                      const currentPayloadWeight = scannedList.reduce((sum, item) => sum + ((item.weight || 15) * item.scanQty), 0);
                       const allWarehouseItems = [...(inventoryData.warehouse1 || []), ...(inventoryData.warehouse2 || [])];
 
-                      // Current active truck and capacity
-                      const currentTruck = TRUCKS.find(truck => truck.name === deliveryData?.selectedTruck || truck.id === deliveryData?.selectedTruck)
-                        || TRUCKS.find(truck => truck.maxWeight === deliveryData?.maxWeight)
-                        || getSuggestedTruckForWeight(currentPayloadWeight, TRUCKS)
-                        || TRUCKS[0];
-
-                      const currentTruckCapacity = currentTruck ? (Number(currentTruck.maxWeight) || 0) : (Number(deliveryData?.maxWeight) || 1500);
-                      const isExceeded = currentPayloadWeight > currentTruckCapacity;
-                      const overloadWeight = Math.max(0, currentPayloadWeight - currentTruckCapacity);
-
-                      // Suggested next higher capacity truck
-                      const suggestedTruck = isExceeded
-                        ? getNextHigherCapacityTruck(currentTruck?.name, currentPayloadWeight, TRUCKS)
-                        : getSuggestedTruckForWeight(currentPayloadWeight, TRUCKS);
-
-                      const canUpgrade = isExceeded && suggestedTruck && suggestedTruck.name !== currentTruck?.name && (Number(suggestedTruck.maxWeight) || 0) > currentTruckCapacity;
-                      const maxFleetCapacity = Math.max(...TRUCKS.map(t => Number(t.maxWeight) || 0));
-                      const isFleetExceeded = isExceeded && currentPayloadWeight > maxFleetCapacity;
-
-                      const maxPayloadWeight = currentTruckCapacity > 0 ? currentTruckCapacity : 1;
-                      const weightPercent = Math.round((currentPayloadWeight / maxPayloadWeight) * 100);
-                      const barColor = isExceeded ? '#f44336' : weightPercent < 75 ? '#04ab0c' : '#ff9800';
-
-                      // Handle adding/scanning items
+                      // Handle adding/scanning/selecting items (works with or without the camera).
+                      // The truck recommendation (shown in Step 3) is only computed once an item
+                      // exists and its weight can be calculated.
                       const handleAddItem = (scannedItem, qtyToAdd = 1) => {
                         if (!scannedItem) return;
 
@@ -1782,39 +1839,16 @@ export default function Logistics({ user, onLogout, onNavigate, events, onMarkDo
                           const nextTotalWeight = currentW + itemWeight;
 
                           const activeTruck = TRUCKS.find(t => t.name === prev?.selectedTruck || t.id === prev?.selectedTruck)
-                            || TRUCKS.find(t => t.maxWeight === prev?.maxWeight)
-                            || getSuggestedTruckForWeight(currentW, TRUCKS);
+                            || getSuggestedTruckForWeight(nextTotalWeight, TRUCKS);
 
-                          const activeCapacity = activeTruck ? (Number(activeTruck.maxWeight) || 0) : (Number(prev?.maxWeight) || 1500);
+                          const activeCapacity = activeTruck ? (Number(activeTruck.maxWeight) || 0) : 0;
                           const nextExceeds = nextTotalWeight > activeCapacity;
-                          const nextSuggested = nextExceeds
-                            ? getNextHigherCapacityTruck(activeTruck?.name, nextTotalWeight, TRUCKS)
-                            : getSuggestedTruckForWeight(nextTotalWeight, TRUCKS);
+                          const nextSuggested = getSuggestedTruckForWeight(nextTotalWeight, TRUCKS);
 
-                          let warningMsg = null;
                           if (nextExceeds) {
-                            if (nextSuggested && nextSuggested.name !== activeTruck?.name && (Number(nextSuggested.maxWeight) || 0) > activeCapacity) {
-                              warningMsg = `Payload capacity exceeded (${nextTotalWeight} kg / ${activeCapacity} kg). Please change type of truck to higher capacity: ${nextSuggested.name} (${nextSuggested.maxWeight} kg).`;
-                              toast.error(`⚠️ Capacity exceeded! Please change type of truck to higher capacity: ${nextSuggested.name} (${nextSuggested.maxWeight} kg).`, { duration: 6000, id: 'capacity-exceeded-toast' });
-                              if (setAdminNotifications) {
-                                setAdminNotifications(prev => [
-                                  {
-                                    id: Date.now(),
-                                    type: 'warning',
-                                    title: '⚠️ Change Truck Type Required',
-                                    message: `Payload of ${nextTotalWeight} kg exceeded ${activeTruck?.name || 'current truck'} capacity. Please change type of truck to higher capacity: ${nextSuggested.name} (${nextSuggested.maxWeight} kg).`,
-                                    timestamp: new Date().toLocaleTimeString(),
-                                    read: false
-                                  },
-                                  ...(prev || [])
-                                ]);
-                              }
-                            } else {
-                              warningMsg = `Fleet capacity limit reached (${nextTotalWeight} kg / max ${maxFleetCapacity} kg)!`;
-                              toast.error(`⚠️ Payload exceeds maximum truck capacity (${maxFleetCapacity} kg)!`, { duration: 5000 });
-                            }
+                            toast.error(`⚠️ Recommended truck: ${nextSuggested.name} (${nextSuggested.maxWeight} kg) for ${nextTotalWeight} kg.`, { duration: 5000, id: 'capacity-exceeded-toast' });
                           } else {
-                            toast.success(`Scanned: ${scannedItem.name}`);
+                            toast.success(`Added: ${scannedItem.name}`);
                           }
 
                           const exists = currentList.findIndex(i => i.id === scannedItem.id);
@@ -1834,7 +1868,7 @@ export default function Logistics({ user, onLogout, onNavigate, events, onMarkDo
                             selectedTruck: prev?.selectedTruck || (nextSuggested ? nextSuggested.name : ''),
                             maxWeight: prev?.maxWeight || (nextSuggested ? nextSuggested.maxWeight : 0),
                             scannedEquipment: newlyScanned,
-                            scanWarning: warningMsg
+                            scanWarning: null
                           };
                         });
                       };
@@ -1850,45 +1884,27 @@ export default function Logistics({ user, onLogout, onNavigate, events, onMarkDo
                             list[idx] = { ...list[idx], scanQty: newQty };
                           }
 
-                          const newWeight = list.reduce((sum, item) => sum + ((item.weight || 15) * item.scanQty), 0);
-                          const activeTruck = TRUCKS.find(t => t.name === prev?.selectedTruck || t.id === prev?.selectedTruck) || TRUCKS[0];
-                          const activeCap = activeTruck ? (Number(activeTruck.maxWeight) || 0) : (Number(prev?.maxWeight) || 1500);
-                          const nextSug = newWeight > activeCap
-                            ? getNextHigherCapacityTruck(activeTruck?.name, newWeight, TRUCKS)
-                            : getSuggestedTruckForWeight(newWeight, TRUCKS);
-
-                          let warn = null;
-                          if (newWeight > activeCap) {
-                            if (nextSug && nextSug.name !== activeTruck?.name) {
-                              warn = `Payload capacity exceeded (${newWeight} kg / ${activeCap} kg). Please change type of truck to higher capacity: ${nextSug.name} (${nextSug.maxWeight} kg).`;
-                              toast.error(`⚠️ Capacity exceeded! Please change type of truck to higher capacity: ${nextSug.name} (${nextSug.maxWeight} kg).`, { duration: 5000, id: 'qty-capacity-exceeded-toast' });
-                            } else {
-                              warn = `Fleet capacity limit reached (${newWeight} kg / max ${maxFleetCapacity} kg)!`;
-                            }
-                          }
-
                           return {
                             ...(prev || {}),
-                            scannedEquipment: list,
-                            scanWarning: warn
+                            scannedEquipment: list
                           };
                         });
                       };
 
-                      const handleSwitchTruck = (truck) => {
-                        if (!truck) return;
-                        setDeliveryData(prev => ({
-                          ...(prev || {}),
-                          selectedTruck: truck.name,
-                          maxWeight: truck.maxWeight,
-                          scanWarning: null
-                        }));
-                        toast.success(`🚚 Changed truck type to ${truck.name} (${truck.maxWeight} kg)`);
+                      const handleManualAdd = () => {
+                        const item = allWarehouseItems.find(i => i.id.toString() === manualSelectItemId);
+                        if (!item) {
+                          toast.error('Please select a product or service to add.');
+                          return;
+                        }
+                        handleAddItem(item, Math.max(1, Number(manualSelectQty) || 1));
+                        setManualSelectItemId('');
+                        setManualSelectQty(1);
                       };
 
                       return (
                       <div style={{ animation: 'fadeIn 0.3s' }}>
-                        <h3 style={{ fontSize: '18px', marginBottom: '16px', color: '#333' }}>Step 2: Equipment Scanning (Wireless Connection)</h3>
+                        <h3 style={{ fontSize: '18px', marginBottom: '16px', color: '#333' }}>Step 3: Equipment Scanning (Wireless Connection)</h3>
                         
                         <div style={{ display: 'flex', gap: '32px', marginBottom: '32px', minHeight: '300px' }}>
                           <div style={{ flex: 1, border: '1px solid #eee', borderRadius: '12px', padding: '24px', textAlign: 'center', backgroundColor: '#f9f9f9', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', boxShadow: 'inset 0 2px 10px rgba(0,0,0,0.02)' }}>
@@ -1936,104 +1952,44 @@ export default function Logistics({ user, onLogout, onNavigate, events, onMarkDo
                                 <button onClick={() => setScannerState('disconnected')} style={{ marginTop: '12px', padding: '6px 16px', backgroundColor: '#f5f5f5', color: '#666', border: 'none', borderRadius: '20px', cursor: 'pointer', fontSize: '13px' }}>Close Camera</button>
                               </div>
                             )}
+
+                            {/* Manual selection - add Products/Services without using the camera */}
+                            <div style={{ width: '100%', marginTop: '20px', paddingTop: '16px', borderTop: '1px dashed #ddd', textAlign: 'left' }}>
+                              <h4 style={{ margin: '0 0 10px 0', color: '#333', fontSize: '14px' }}>Or Select Manually</h4>
+                              <select
+                                value={manualSelectItemId}
+                                onChange={(e) => setManualSelectItemId(e.target.value)}
+                                style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #ddd', fontSize: '13px', marginBottom: '8px', boxSizing: 'border-box' }}
+                              >
+                                <option value="">-- Select a Product or Service --</option>
+                                {allWarehouseItems.map(item => (
+                                  <option key={item.id} value={item.id}>{item.name}</option>
+                                ))}
+                              </select>
+                              <div style={{ display: 'flex', gap: '8px' }}>
+                                <input
+                                  type="number"
+                                  min="1"
+                                  value={manualSelectQty}
+                                  onChange={(e) => setManualSelectQty(Math.max(1, parseInt(e.target.value) || 1))}
+                                  style={{ width: '70px', padding: '8px', borderRadius: '6px', border: '1px solid #ddd', fontSize: '13px', boxSizing: 'border-box' }}
+                                />
+                                <button
+                                  onClick={handleManualAdd}
+                                  style={{ flex: 1, padding: '8px 12px', backgroundColor: '#2196F3', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', fontSize: '13px' }}
+                                >
+                                  Add Item
+                                </button>
+                              </div>
+                            </div>
                           </div>
-                          
+
                           <div style={{ flex: 1.5, display: 'flex', flexDirection: 'column' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
                               <h4 style={{ margin: 0, fontSize: '16px', color: '#333' }}>Scanned Items Manifest</h4>
                               <span style={{ fontSize: '13px', color: '#333', backgroundColor: '#e3f2fd', padding: '4px 12px', borderRadius: '16px', fontWeight: 'bold' }}>{scannedList.length} unique items ({scannedList.reduce((acc, item) => acc + item.scanQty, 0)} total units)</span>
                             </div>
-                            
-                            {/* Capacity Telemetry Bar */}
-                            <div style={{ marginBottom: '14px', backgroundColor: '#fafafa', padding: '14px', borderRadius: '10px', border: isExceeded ? '1px solid #ffcdd2' : '1px solid #eee' }}>
-                              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '6px', alignItems: 'center' }}>
-                                <span style={{ color: '#555', fontWeight: '500' }}>
-                                  Payload Capacity ({currentTruck?.name?.split(' ')[0] || deliveryData.selectedTruck.split(' ')[0] || 'Truck'}):
-                                </span>
-                                <div style={{ textAlign: 'right' }}>
-                                  <strong style={{ color: barColor, fontSize: '14px' }}>{currentPayloadWeight} kg / {currentTruckCapacity} kg</strong>
-                                  <span style={{ fontSize: '12px', marginLeft: '8px', color: isExceeded ? '#d32f2f' : '#666', fontWeight: isExceeded ? 'bold' : 'normal' }}>
-                                    ({weightPercent}% {isExceeded ? 'OVERLOAD' : 'used'})
-                                  </span>
-                                </div>
-                              </div>
 
-                              <div style={{ height: '10px', backgroundColor: '#e0e0e0', borderRadius: '5px', overflow: 'hidden', position: 'relative' }}>
-                                <div style={{ 
-                                  width: `${Math.min(weightPercent, 100)}%`, 
-                                  height: '100%', 
-                                  backgroundColor: barColor, 
-                                  transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                                  boxShadow: isExceeded ? '0 0 8px rgba(244, 67, 54, 0.6)' : 'none'
-                                }}></div>
-                              </div>
-
-                              {/* Capacity Exceeded Suggestion Banner */}
-                              {isExceeded && (
-                                <div style={{ 
-                                  marginTop: '12px', 
-                                  padding: '16px 18px', 
-                                  backgroundColor: '#fff5f5', 
-                                  border: '2px solid #f44336', 
-                                  borderRadius: '8px', 
-                                  boxShadow: '0 4px 14px rgba(244, 67, 54, 0.15)', 
-                                  animation: 'fadeIn 0.3s' 
-                                }}>
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-                                    <span style={{ fontSize: '20px' }}>🚨</span>
-                                    <strong style={{ color: '#c62828', fontSize: '15px' }}>Action Required: Change Type of Truck to Higher Capacity</strong>
-                                    <span style={{ marginLeft: 'auto', backgroundColor: '#ffebee', color: '#c62828', fontSize: '11px', padding: '2px 8px', borderRadius: '10px', fontWeight: 'bold', border: '1px solid #ffcdd2' }}>
-                                      +{overloadWeight} kg Overload
-                                    </span>
-                                  </div>
-
-                                  <div style={{ fontSize: '13px', color: '#555', marginBottom: '12px', lineHeight: '1.4' }}>
-                                    Current payload of <strong>{currentPayloadWeight} kg</strong> exceeds <strong>{currentTruck?.name || deliveryData.selectedTruck}</strong> capacity limit (<strong>{currentTruckCapacity} kg</strong>). Please change the type of truck to a higher capacity model.
-                                  </div>
-
-                                  {canUpgrade ? (
-                                    <div style={{ backgroundColor: '#fff', border: '1px solid #a5d6a7', borderRadius: '8px', padding: '12px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
-                                      <div>
-                                        <div style={{ fontSize: '11px', color: '#2e7d32', textTransform: 'uppercase', fontWeight: 'bold', letterSpacing: '0.5px' }}>💡 Suggested Higher Capacity Truck</div>
-                                        <div style={{ fontSize: '15px', fontWeight: 'bold', color: '#1b5e20', marginTop: '2px' }}>
-                                          {suggestedTruck.name}
-                                        </div>
-                                        <div style={{ fontSize: '12px', color: '#666' }}>
-                                          Max Load: <strong>{suggestedTruck.maxWeight} kg</strong> • Headroom: <strong style={{ color: '#2e7d32' }}>+{suggestedTruck.maxWeight - currentPayloadWeight} kg available</strong>
-                                        </div>
-                                      </div>
-                                      <button 
-                                        onClick={() => handleSwitchTruck(suggestedTruck)}
-                                        style={{ 
-                                          padding: '10px 18px', 
-                                          backgroundColor: '#04ab0c', 
-                                          color: 'white', 
-                                          border: 'none', 
-                                          borderRadius: '6px', 
-                                          fontWeight: 'bold', 
-                                          cursor: 'pointer', 
-                                          fontSize: '13px', 
-                                          display: 'flex', 
-                                          alignItems: 'center', 
-                                          gap: '6px',
-                                          boxShadow: '0 2px 8px rgba(4, 171, 12, 0.3)',
-                                          transition: 'all 0.2s'
-                                        }}
-                                        onMouseEnter={e => e.currentTarget.style.backgroundColor = '#038c0a'}
-                                        onMouseLeave={e => e.currentTarget.style.backgroundColor = '#04ab0c'}
-                                      >
-                                        <span>🚚</span> Change Type of Truck to {suggestedTruck.name.split(' ')[0]}
-                                      </button>
-                                    </div>
-                                  ) : isFleetExceeded ? (
-                                    <div style={{ backgroundColor: '#fff', border: '1px dashed #f44336', borderRadius: '6px', padding: '8px 12px', color: '#c62828', fontSize: '12px', fontWeight: 'bold' }}>
-                                      ⚠️ Maximum fleet capacity exceeded ({maxFleetCapacity} kg). Please remove items or split the shipment across multiple trips.
-                                    </div>
-                                  ) : null}
-                                </div>
-                              )}
-                            </div>
-                            
                             <div style={{ border: '1px solid #eee', borderRadius: '12px', flex: 1, overflowY: 'auto', backgroundColor: '#fff', maxHeight: '350px', boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.02)' }}>
                               {scannedList.length === 0 ? (
                                 <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#999', minHeight: '200px' }}>
@@ -2081,14 +2037,9 @@ export default function Logistics({ user, onLogout, onNavigate, events, onMarkDo
                         </div>
 
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid #eee', paddingTop: '20px' }}>
-                          <button onClick={() => setProcessStep(1)} style={{ padding: '12px 24px', backgroundColor: '#f5f5f5', color: '#333', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '500', fontSize: '15px' }}>← Back</button>
-                          <button 
-                            onClick={() => {
-                              if (isExceeded && canUpgrade) {
-                                toast(`⚠️ Notice: Please change truck type to ${suggestedTruck.name} (${suggestedTruck.maxWeight} kg).`, { icon: '🚚', duration: 5000 });
-                              }
-                              setProcessStep(3);
-                            }} 
+                          <button onClick={() => setProcessStep(2)} style={{ padding: '12px 24px', backgroundColor: '#f5f5f5', color: '#333', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '500', fontSize: '15px' }}>← Back</button>
+                          <button
+                            onClick={() => setProcessStep(4)}
                             style={{ padding: '12px 28px', backgroundColor: '#04ab0c', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', fontSize: '15px' }}
                           >
                             Next: Truck Selection ➜
@@ -2097,17 +2048,17 @@ export default function Logistics({ user, onLogout, onNavigate, events, onMarkDo
                       </div>
                     )})()}
 
-                    {processStep === 3 && (() => {
+                    {processStep === 4 && (() => {
                       const currentPayloadWeight = (deliveryData?.scannedEquipment || []).reduce((sum, item) => sum + ((item.weight || 15) * item.scanQty), 0);
-                      const recommendedTruck = getSuggestedTruckForWeight(currentPayloadWeight, TRUCKS);
+                      const recommendedTruck = currentPayloadWeight > 0 ? getSuggestedTruckForWeight(currentPayloadWeight, TRUCKS) : null;
 
                       return (
                       <div style={{ animation: 'fadeIn 0.3s' }}>
-                        <h3 style={{ fontSize: '18px', marginBottom: '8px', color: '#333' }}>Step 3: Select Transport Truck</h3>
+                        <h3 style={{ fontSize: '18px', marginBottom: '8px', color: '#333' }}>Step 4: Select Transport Truck</h3>
                         <p style={{ color: '#666', fontSize: '14px', marginBottom: '24px' }}>
-                          Scanned Payload Weight: <strong style={{ color: '#04ab0c' }}>{currentPayloadWeight} kg</strong>. The transport truck is auto-suggested based on payload weight. You can select another truck below before moving to the allocation draft.
+                          Scanned Payload Weight: <strong style={{ color: '#04ab0c' }}>{currentPayloadWeight} kg</strong>. {currentPayloadWeight > 0 ? 'The transport truck is auto-suggested based on the payload weight calculated.' : 'Scan or select items in Step 2 to get a recommended truck type.'} You can select another truck below before moving on.
                         </p>
-                        
+
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '40px' }}>
                           {TRUCKS.map((truck) => {
                             const isMaintenance = truck.status === 'Maintenance';
@@ -2152,7 +2103,7 @@ export default function Logistics({ user, onLogout, onNavigate, events, onMarkDo
                                   <div style={{ fontWeight: 'bold', color: isMaintenance ? '#c62828' : '#333', fontSize: '16px', marginBottom: '4px', display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '4px' }}>
                                     <span>{truck.name.split(' ')[0]}</span>
                                     {isMaintenance && <span style={{ fontSize: '11px', backgroundColor: '#c62828', color: 'white', padding: '2px 6px', borderRadius: '10px' }}>Maintenance</span>}
-                                    {isRecommended && <span style={{ fontSize: '11px', backgroundColor: '#e8f5e9', color: '#04ab0c', padding: '2px 6px', borderRadius: '10px', border: '1px solid #c8e6c9' }}>⭐ Recommended</span>}
+                                    {isRecommended && <span style={{ fontSize: '11px', backgroundColor: '#e8f5e9', color: '#04ab0c', padding: '2px 6px', borderRadius: '10px', border: '1px solid #c8e6c9' }}>⭐ Recommended Type of Truck</span>}
                                     {isUnderCapacity && <span style={{ fontSize: '11px', backgroundColor: '#ffebee', color: '#c62828', padding: '2px 6px', borderRadius: '10px', border: '1px solid #ffcdd2' }}>⚠️ Under-capacity</span>}
                                   </div>
                                   <div style={{ color: '#666', fontSize: '13px', display: 'flex', justifyContent: 'space-between' }}>
@@ -2166,248 +2117,12 @@ export default function Logistics({ user, onLogout, onNavigate, events, onMarkDo
                           })}
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid #eee', paddingTop: '20px' }}>
-                          <button onClick={() => setProcessStep(2)} style={{ padding: '12px 24px', backgroundColor: '#f5f5f5', color: '#333', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '500', fontSize: '15px' }}>← Back</button>
-                          <button onClick={() => setProcessStep(4)} disabled={!deliveryData?.selectedTruck} style={{ padding: '12px 28px', backgroundColor: !deliveryData?.selectedTruck ? '#ccc' : '#04ab0c', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: !deliveryData?.selectedTruck ? 'not-allowed' : 'pointer', fontSize: '15px' }}>Next: Allocation Draft ➜</button>
+                          <button onClick={() => setProcessStep(3)} style={{ padding: '12px 24px', backgroundColor: '#f5f5f5', color: '#333', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '500', fontSize: '15px' }}>← Back</button>
+                          <button onClick={() => setProcessStep(5)} disabled={!deliveryData?.selectedTruck} style={{ padding: '12px 28px', backgroundColor: !deliveryData?.selectedTruck ? '#ccc' : '#04ab0c', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: !deliveryData?.selectedTruck ? 'not-allowed' : 'pointer', fontSize: '15px' }}>Next: Generate Receipt ➜</button>
                         </div>
                       </div>
                     );
                     })()}
-
-                    {processStep === 4 && (() => {
-                      const activeTruck = TRUCKS.find(t => t.name === deliveryData.selectedTruck) || TRUCKS[3];
-                      // Ensure there are always enough slots for the scanned equipment
-                      const totalZones = Math.max(activeTruck.gridZones, deliveryData.scannedEquipment.length);
-                      const placedItemsCount = Object.keys(deliveryData.placedItems || {}).length;
-                      const isComplete = deliveryData.scannedEquipment.length === placedItemsCount;
-
-                      return (
-                      <div style={{ animation: 'fadeIn 0.3s' }}>
-                        <h3 style={{ fontSize: '18px', marginBottom: '8px', color: '#333' }}>Step 4: Visual Load Planning</h3>
-                        <p style={{ color: '#666', fontSize: '14px', marginBottom: '24px' }}>Drag and drop scanned items from the Staging Dock into the Trailer Configuration zones.</p>
-                        
-                        <div style={{ display: 'flex', gap: '24px', marginBottom: '40px', minHeight: '500px' }}>
-                          {/* Staging Dock */}
-                          <div style={{ flex: '0 0 350px', backgroundColor: '#f9f9f9', border: '1px solid #e0e0e0', borderRadius: '12px', padding: '24px', display: 'flex', flexDirection: 'column', boxShadow: '0 4px 12px rgba(0,0,0,0.02)' }}>
-                            <h4 style={{ margin: '0 0 16px 0', color: '#333', fontSize: '15px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                              Staging Dock
-                              <span style={{ fontSize: '12px', backgroundColor: '#eee', padding: '4px 8px', borderRadius: '12px' }}>{deliveryData.scannedEquipment.length - placedItemsCount} Remaining</span>
-                            </h4>
-                            <div 
-                              style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '10px', padding: '10px' }}
-                              onDragOver={e => e.preventDefault()}
-                              onDrop={e => {
-                                e.preventDefault();
-                                const idxId = e.dataTransfer.getData('text/plain');
-                                if (!idxId) return;
-                                setDeliveryData(prev => {
-                                  const newPlaced = { ...(prev.placedItems || {}) };
-                                  Object.keys(newPlaced).forEach(k => { if (newPlaced[k] === idxId) delete newPlaced[k]; });
-                                  return { ...prev, placedItems: newPlaced };
-                                });
-                              }}
-                            >
-                              {deliveryData.scannedEquipment.length === placedItemsCount && (
-                                <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#04ab0c', textAlign: 'center' }}>
-                                  <div style={{ fontSize: '40px', marginBottom: '12px' }}>✅</div>
-                                  <div style={{ fontWeight: 'bold' }}>All Items Loaded</div>
-                                </div>
-                              )}
-                              
-                              {deliveryData.scannedEquipment.map((item, idx) => {
-                                const idxStr = idx.toString();
-                                const isPlaced = Object.values(deliveryData.placedItems || {}).includes(idxStr);
-                                if (isPlaced) return null;
-                                
-                                return (
-                                  <div 
-                                    key={idx}
-                                    draggable
-                                    onDragStart={e => e.dataTransfer.setData('text/plain', idxStr)}
-                                    style={{ 
-                                      padding: '16px', 
-                                      backgroundColor: '#e0e0e0', 
-                                      backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 5px, rgba(0,0,0,0.05) 5px, rgba(0,0,0,0.05) 10px)', 
-                                      border: '2px solid #9e9e9e', 
-                                      borderRadius: '4px', 
-                                      cursor: 'grab', 
-                                      display: 'flex', 
-                                      flexDirection: 'column', 
-                                      gap: '6px', 
-                                      boxShadow: '-1px 1px 0 #bdbdbd, -2px 2px 0 #9e9e9e, -3px 3px 0 #757575, -4px 4px 10px rgba(0,0,0,0.3)', 
-                                      transition: 'all 0.1s' 
-                                    }}
-                                    onMouseDown={e => { e.currentTarget.style.transform = 'translate(1px, -1px)'; e.currentTarget.style.boxShadow = '-1px 1px 0 #bdbdbd, -2px 2px 5px rgba(0,0,0,0.2)'; }}
-                                    onMouseUp={e => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = '-1px 1px 0 #bdbdbd, -2px 2px 0 #9e9e9e, -3px 3px 0 #757575, -4px 4px 10px rgba(0,0,0,0.3)'; }}
-                                    onMouseLeave={e => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = '-1px 1px 0 #bdbdbd, -2px 2px 0 #9e9e9e, -3px 3px 0 #757575, -4px 4px 10px rgba(0,0,0,0.3)'; }}
-                                  >
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                                      <strong style={{ fontSize: '14px', color: '#333' }}>{item.name}</strong>
-                                      <span style={{ fontSize: '13px', fontWeight: 'bold', backgroundColor: '#616161', color: '#fff', padding: '2px 8px', borderRadius: '4px', whiteSpace: 'nowrap', marginLeft: '8px' }}>x{item.scanQty}</span>
-                                    </div>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#616161', fontWeight: 'bold' }}>
-                                      <span>Payload: {(item.weight || 15) * item.scanQty} kg</span>
-                                      <span style={{ opacity: 0.7 }}>ID: {item.id}</span>
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          </div>
-
-                          {/* Trailer View (Isometric 3D) */}
-                          <div style={{ flex: 1, backgroundColor: '#eceff1', borderRadius: '12px', padding: '10px', position: 'relative', boxShadow: 'inset 0 10px 40px rgba(0,0,0,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
-                            <div style={{ position: 'absolute', top: '16px', right: '16px', display: 'flex', flexDirection: 'column', gap: '8px', zIndex: 100 }}>
-                              <button onClick={() => setVisualZoom(z => Math.min(z + 0.2, 3.0))} style={{ width: '36px', height: '36px', borderRadius: '8px', border: '1px solid #cfd8dc', backgroundColor: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '20px', color: '#455a64', boxShadow: '0 4px 6px rgba(0,0,0,0.05)', transition: 'all 0.2s', fontWeight: 'bold' }}>+</button>
-                              <button onClick={() => setVisualZoom(z => Math.max(z - 0.2, 0.4))} style={{ width: '36px', height: '36px', borderRadius: '8px', border: '1px solid #cfd8dc', backgroundColor: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '20px', color: '#455a64', boxShadow: '0 4px 6px rgba(0,0,0,0.05)', transition: 'all 0.2s', fontWeight: 'bold' }}>-</button>
-                            </div>
-                            <div 
-                              style={{ perspective: '1200px', width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: isDraggingTruck ? 'grabbing' : 'grab' }}
-                              onMouseDown={(e) => {
-                                if (e.target.closest('[draggable="true"]')) return;
-                                setIsDraggingTruck(true);
-                                setDragStart({ x: e.clientX - visualPan.x, y: e.clientY - visualPan.y });
-                              }}
-                              onMouseMove={(e) => {
-                                if (!isDraggingTruck) return;
-                                setVisualPan({ x: e.clientX - dragStart.x, y: e.clientY - dragStart.y });
-                              }}
-                              onMouseUp={() => setIsDraggingTruck(false)}
-                              onMouseLeave={() => setIsDraggingTruck(false)}
-                            >
-                              <div style={{ transform: `translate(${visualPan.x}px, ${visualPan.y}px) scale(${visualZoom}) rotateX(55deg) rotateZ(-35deg)`, transformStyle: 'preserve-3d', display: 'flex', flexDirection: 'column', alignItems: 'center', width: '250px', transition: isDraggingTruck ? 'none' : 'transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1)', boxShadow: '-15px 15px 30px rgba(0,0,0,0.3)' }}>
-                                
-                                {/* Realistic Forward Cab Area */}
-                                <div style={{ width: '130px', display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: '2px', zIndex: 10, transform: 'translateZ(15px)' }}>
-                                  {/* Engine Hood */}
-                                  <div style={{ width: '90px', height: '30px', backgroundColor: '#e0e0e0', border: '2px solid #9e9e9e', borderBottom: 'none', borderRadius: '16px 16px 0 0', position: 'relative', boxShadow: 'inset -2px 2px 5px rgba(255,255,255,0.8), -2px 2px 0 #9e9e9e' }}>
-                                     <div style={{ position: 'absolute', top: '10px', left: '20px', right: '20px', height: '5px', backgroundColor: '#9e9e9e', borderRadius: '2px' }}></div>
-                                     {/* Headlights */}
-                                     <div style={{ position: 'absolute', top: '5px', left: '5px', width: '10px', height: '8px', backgroundColor: '#fff', borderRadius: '4px', boxShadow: '0 0 5px #fff' }}></div>
-                                     <div style={{ position: 'absolute', top: '5px', right: '5px', width: '10px', height: '8px', backgroundColor: '#fff', borderRadius: '4px', boxShadow: '0 0 5px #fff' }}></div>
-                                  </div>
-                                  {/* Cab Roof */}
-                                  <div style={{ width: '130px', height: '50px', backgroundColor: '#f5f5f5', border: '2px solid #9e9e9e', borderRadius: '8px 8px 4px 4px', position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', boxShadow: 'inset -2px 2px 5px rgba(255,255,255,0.8), -3px 3px 0 #9e9e9e, -5px 5px 15px rgba(0,0,0,0.4)', transform: 'translateZ(10px)' }}>
-                                     {/* Windshield */}
-                                     <div style={{ width: '110px', height: '20px', backgroundColor: '#111', marginTop: '-10px', borderRadius: '4px 4px 0 0', opacity: 0.85, boxShadow: 'inset 0 0 8px #000, 0 2px 0 #9e9e9e', borderTop: '2px solid #616161' }}></div>
-                                     {/* Cab Vent/Detail */}
-                                     <div style={{ width: '80px', height: '10px', border: '1px solid #e0e0e0', marginTop: '10px', borderRadius: '2px' }}></div>
-                                     {/* Side Mirrors */}
-                                     <div style={{ position: 'absolute', top: '5px', left: '-12px', width: '8px', height: '25px', backgroundColor: '#424242', borderRadius: '4px', border: '2px solid #9e9e9e' }}></div>
-                                     <div style={{ position: 'absolute', top: '5px', right: '-12px', width: '8px', height: '25px', backgroundColor: '#424242', borderRadius: '4px', border: '2px solid #9e9e9e' }}></div>
-                                  </div>
-                                </div>
-                                
-                                {/* Tractor Joint (Fifth-Wheel Link) */}
-                                <div style={{ width: '40px', height: '15px', backgroundColor: '#424242', borderLeft: '2px solid #212121', borderRight: '2px solid #212121', boxShadow: '-2px 2px 0 #212121', transform: 'translateZ(5px)', marginBottom: '2px' }}></div>
-                                
-                                {/* The Trailer Chassis (Modern Box Truck Bed) */}
-                                <div style={{ width: '100%', backgroundColor: '#b0bec5', backgroundImage: 'repeating-linear-gradient(0deg, #cfd8dc, #cfd8dc 20px, #b0bec5 20px, #b0bec5 24px)', padding: '16px', border: '6px solid #78909c', position: 'relative', boxShadow: '-1px 1px 0 #607d8b, -2px 2px 0 #607d8b, -3px 3px 0 #546e7a, -4px 4px 0 #546e7a, -6px 6px 0 #455a64, -12px 12px 25px rgba(0,0,0,0.6), inset 0 0 30px rgba(0,0,0,0.2)', zIndex: 1, display: 'flex', flexDirection: 'column', transformStyle: 'preserve-3d' }}>
-                                  
-                                  {/* Front Wheels (Cab) */}
-                                  <div style={{ position: 'absolute', left: '-20px', top: '5%', width: '16px', height: '40px', backgroundColor: '#212121', borderRadius: '4px', boxShadow: '-2px 2px 5px rgba(0,0,0,0.8), inset -2px 0 5px #000', transform: 'translateZ(-15px)' }}></div>
-                                  <div style={{ position: 'absolute', right: '-20px', top: '5%', width: '16px', height: '40px', backgroundColor: '#212121', borderRadius: '4px', boxShadow: '-2px 2px 5px rgba(0,0,0,0.8), inset 2px 0 5px #000', transform: 'translateZ(-15px)' }}></div>
-
-                                  {/* Rear Wheels (Double axle) */}
-                                  <div style={{ position: 'absolute', left: '-24px', bottom: '10%', width: '24px', height: '80px', backgroundColor: '#111', borderRadius: '4px', boxShadow: '-2px 2px 5px rgba(0,0,0,0.8), inset -5px 0 10px #000', transform: 'translateZ(-15px)' }}></div>
-                                  <div style={{ position: 'absolute', right: '-24px', bottom: '10%', width: '24px', height: '80px', backgroundColor: '#111', borderRadius: '4px', boxShadow: '-2px 2px 5px rgba(0,0,0,0.8), inset 5px 0 10px #000', transform: 'translateZ(-15px)' }}></div>
-
-                                  <div style={{ textAlign: 'center', color: '#111', fontWeight: '900', letterSpacing: '4px', marginBottom: '16px', textTransform: 'uppercase', fontSize: '11px', textShadow: '0 1px 1px rgba(255,255,255,0.8)', transform: 'translateZ(1px)' }}>Trailer Headwall</div>
-                                  
-                                  <div style={{ flex: 1, display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gridAutoRows: '60px', gap: '6px', paddingRight: '4px', transformStyle: 'preserve-3d' }}>
-                                    {Array.from({ length: totalZones }).map((_, zoneId) => {
-                                      const occupantIdxStr = (deliveryData.placedItems || {})[zoneId];
-                                      const occupantIndex = occupantIdxStr !== undefined ? parseInt(occupantIdxStr, 10) : null;
-                                      const occupant = occupantIndex !== null ? deliveryData.scannedEquipment[occupantIndex] : null;
-
-                                      return (
-                                        <div 
-                                          key={zoneId}
-                                          onDragOver={e => e.preventDefault()}
-                                          onDrop={e => {
-                                            e.preventDefault();
-                                            const idxId = e.dataTransfer.getData('text/plain');
-                                            if (!idxId) return;
-                                            
-                                            setDeliveryData(prev => {
-                                              const newPlaced = { ...(prev.placedItems || {}) };
-                                              
-                                              // Block dropping if slot is full and it's a different item
-                                              if (newPlaced[zoneId] && newPlaced[zoneId] !== idxId) {
-                                                return prev; 
-                                              }
-                                              
-                                              Object.keys(newPlaced).forEach(k => { if (newPlaced[k] === idxId) delete newPlaced[k]; });
-                                              newPlaced[zoneId] = idxId;
-                                              return { ...prev, placedItems: newPlaced };
-                                            });
-                                          }}
-                                          draggable={!!occupant}
-                                          onDragStart={e => {
-                                            if (occupant) e.dataTransfer.setData('text/plain', occupantIdxStr);
-                                          }}
-                                          style={{ 
-                                            backgroundColor: occupant ? '#e0e0e0' : 'rgba(0,0,0,0.2)', 
-                                            backgroundImage: occupant ? 'repeating-linear-gradient(45deg, transparent, transparent 5px, rgba(0,0,0,0.05) 5px, rgba(0,0,0,0.05) 10px)' : 'repeating-linear-gradient(45deg, rgba(255,235,59,0.1) 25%, transparent 25%, transparent 50%, rgba(255,235,59,0.1) 50%, rgba(255,235,59,0.1) 75%, transparent 75%, transparent)',
-                                            backgroundSize: occupant ? 'auto' : '20px 20px',
-                                            border: occupant ? '2px solid #9e9e9e' : '2px dashed rgba(255,235,59,0.4)', 
-                                            borderRadius: '2px', 
-                                            display: 'flex', 
-                                            alignItems: 'center', 
-                                            justifyContent: 'center', 
-                                            cursor: occupant ? 'grab' : 'default',
-                                            padding: '2px',
-                                            position: 'relative',
-                                            boxShadow: occupant ? '-1px 1px 0 #bdbdbd, -2px 2px 0 #9e9e9e, -3px 3px 0 #757575, -4px 4px 0 #616161, -5px 5px 0 #424242, -10px 10px 15px rgba(0,0,0,0.6)' : 'inset 0 0 10px rgba(0,0,0,0.5)',
-                                            transform: occupant ? 'translateZ(15px)' : 'translateZ(0)',
-                                            transition: 'transform 0.1s'
-                                          }}
-                                          onMouseDown={e => {if(occupant) e.currentTarget.style.transform = 'translateZ(12px) translate(1px, -1px)'}}
-                                          onMouseUp={e => {if(occupant) e.currentTarget.style.transform = 'translateZ(15px)'}}
-                                          onMouseLeave={e => {if(occupant) e.currentTarget.style.transform = 'translateZ(15px)'}}
-                                        >
-                                          {!occupant && <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: '11px', fontWeight: 'bold' }}>Z-{zoneId + 1}</span>}
-                                          {occupant && (
-                                            <div style={{ textAlign: 'center', width: '100%', pointerEvents: 'none' }}>
-                                              <div style={{ fontSize: '10px', color: '#333', fontWeight: 'bold', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{occupant.name.substring(0, 11)}..</div>
-                                              <div style={{ fontSize: '10px', color: '#fff', backgroundColor: '#616161', padding: '1px 3px', borderRadius: '3px', display: 'inline-block', marginTop: '2px' }}>x{occupant.scanQty}</div>
-                                            </div>
-                                          )}
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
-                                  
-                                  <div style={{ textAlign: 'center', color: '#fff', fontWeight: 'bold', letterSpacing: '4px', marginTop: '16px', textTransform: 'uppercase', fontSize: '11px', textShadow: '0 2px 4px rgba(0,0,0,0.8)', transform: 'translateZ(1px)' }}>Loading Ramp</div>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid #eee', paddingTop: '20px' }}>
-                          <button onClick={() => setProcessStep(3)} style={{ padding: '12px 24px', backgroundColor: '#f5f5f5', color: '#333', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '500', fontSize: '15px' }}>← Edit Equipment</button>
-                          <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-                            <button
-                              onClick={() => setProcessStep(5)}
-                              style={{ padding: '14px 28px', backgroundColor: '#f0f0f0', color: '#333', border: '1px solid #ddd', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', fontSize: '16px', transition: 'all 0.2s' }}
-                              onMouseEnter={e => e.currentTarget.style.backgroundColor='#e4e4e4'}
-                              onMouseLeave={e => e.currentTarget.style.backgroundColor='#f0f0f0'}
-                            >
-                              Skip
-                            </button>
-                            <button
-                              onClick={() => setProcessStep(5)}
-                              disabled={!isComplete}
-                              style={{ padding: '14px 36px', backgroundColor: isComplete ? '#04ab0c' : '#ccc', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: isComplete ? 'pointer' : 'not-allowed', fontSize: '16px', boxShadow: isComplete ? '0 6px 16px rgba(4,171,12,0.3)' : 'none', transition: 'all 0.2s' }}
-                              onMouseEnter={e => {if(isComplete) e.currentTarget.style.transform = 'translateY(-2px)'}}
-                              onMouseLeave={e => {if(isComplete) e.currentTarget.style.transform = 'none'}}
-                            >
-                              {isComplete ? 'Generate Receipt & Finalize' : 'Load Truck To Continue'}
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    )})()}
 
                     {processStep === 5 && (
                       <div style={{ textAlign: 'center', padding: '60px 0', animation: 'fadeIn 0.5s' }}>
@@ -2431,18 +2146,28 @@ export default function Logistics({ user, onLogout, onNavigate, events, onMarkDo
 
                         <div style={{ display: 'flex', justifyContent: 'center', gap: '12px', flexWrap: 'wrap' }}>
                           <button onClick={() => {
-                            if(onUpdateJobOrderStatus) onUpdateJobOrderStatus(processingJobOrder.id, 'ready_for_dispatch', { deliveryData });
+                            // Returning does not finalize the delivery - the job order keeps its
+                            // 'approved' status so it goes back to the start of the process.
                             setProcessingJobOrder(null);
                             setProcessStep(1);
                             setScannerState('disconnected');
                           }} style={{ padding: '14px 36px', backgroundColor: '#f0f0f0', color: '#333', border: '1px solid #ddd', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', fontSize: '16px', transition: 'all 0.2s' }} onMouseEnter={e => e.currentTarget.style.backgroundColor='#e4e4e4'} onMouseLeave={e => e.currentTarget.style.backgroundColor='#f0f0f0'}>Return to Deliveries</button>
                           <button onClick={() => {
-                            if(onUpdateJobOrderStatus) onUpdateJobOrderStatus(processingJobOrder.id, 'ready_for_dispatch', { deliveryData });
+                            if(onUpdateJobOrderStatus) onUpdateJobOrderStatus(processingJobOrder.id, 'ready_for_dispatch', {
+                              deliveryData,
+                              manpower: deliveryData?.manpowerNeeded || processingJobOrder.manpower,
+                              contractLength: deliveryData?.contractLength || processingJobOrder.contractLength,
+                              startDate: deliveryData?.startDate || processingJobOrder.startDate,
+                              endDate: deliveryData?.endDate || processingJobOrder.endDate,
+                              deliveryDate: deliveryData?.deliveryDate || ''
+                            });
                             const prefill = getTripPrefillData({
                               selectedTruck: deliveryData.selectedTruck,
                               assignedManpower: deliveryData.assignedManpower,
                               processingJobOrder,
-                              employees
+                              employees,
+                              trips: activeTrips,
+                              arrivedTripIds
                             });
                             setActiveTab('tripmanager');
                             setShowTripModal(true);
@@ -2561,6 +2286,15 @@ export default function Logistics({ user, onLogout, onNavigate, events, onMarkDo
                               <div style={{ fontSize: '20px', fontWeight: '700', color: '#43a047' }}>{getTotalManpower(trip.selectedJobOrders, trip)}</div>
                               <div style={{ fontSize: '11px', color: '#666' }}>Manpower</div>
                             </div>
+                            <button
+                              type="button"
+                              onClick={() => setTicketTrip(trip)}
+                              style={{ padding: '8px 14px', backgroundColor: '#2196F3', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', fontSize: '13px', transition: 'background-color 0.2s' }}
+                              onMouseEnter={e => e.currentTarget.style.backgroundColor = '#1976D2'}
+                              onMouseLeave={e => e.currentTarget.style.backgroundColor = '#2196F3'}
+                            >
+                              🎫 View Ticket
+                            </button>
                           </div>
                         </div>
                       </div>
@@ -2885,6 +2619,135 @@ export default function Logistics({ user, onLogout, onNavigate, events, onMarkDo
           </div>
         </div>
       )}
+
+      {/* Trip Ticket (printable) */}
+      {ticketTrip && (() => {
+        const ticketOrders = effectiveJobOrders.filter(o => (ticketTrip.selectedJobOrders || []).includes(o.id));
+        const customerNames = [...new Set(ticketOrders.map(o => o.customerName).filter(Boolean))].join(', ') || 'N/A';
+        const companyNames = [...new Set(ticketOrders.map(o => o.company).filter(Boolean))].join(', ') || 'N/A';
+        const orderTypes = [...new Set(ticketOrders.map(o => o.jobType).filter(Boolean))].join(', ') || 'N/A';
+        const addresses = [...new Set(ticketOrders.map(o => o.address).filter(Boolean))].join('; ') || 'N/A';
+        const ticketNumber = String(ticketTrip.id).slice(-6);
+        const ticketDateTime = ticketTrip.createdAt ? new Date(ticketTrip.createdAt) : new Date();
+        const loadCount = (ticketTrip.selectedJobOrders || []).length;
+        const manpowerCount = getTotalManpower(ticketTrip.selectedJobOrders || [], ticketTrip);
+
+        return (
+          <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 3000, padding: '20px' }} onClick={() => setTicketTrip(null)}>
+            <style>{`
+              @media print {
+                html, body { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; }
+                body * { visibility: hidden; }
+                .oba-ticket-print-area, .oba-ticket-print-area * { visibility: visible; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; }
+                .oba-ticket-print-area {
+                  position: absolute !important;
+                  top: 0 !important;
+                  left: 0 !important;
+                  width: 640px !important;
+                  max-width: 640px !important;
+                  margin: 0 !important;
+                  max-height: none !important;
+                  overflow: visible !important;
+                  box-shadow: none !important;
+                }
+                .oba-ticket-print-area .no-print { display: none !important; }
+              }
+            `}</style>
+            <div
+              className="oba-ticket-print-area"
+              onClick={(e) => e.stopPropagation()}
+              style={{ backgroundColor: '#fff', width: '100%', maxWidth: '640px', maxHeight: '92vh', overflowY: 'auto', borderRadius: '10px', boxShadow: '0 20px 60px rgba(0,0,0,0.35)', padding: '28px 32px', fontFamily: 'Arial, Helvetica, sans-serif', color: '#111', position: 'relative' }}
+            >
+              <div style={{ position: 'absolute', top: '10px', right: '16px', fontSize: '18px', color: '#333' }}>*</div>
+
+              {/* Header */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '2px solid #333', paddingBottom: '14px', marginBottom: '16px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <img src="/logo.png" alt="OBA Supplies & Services logo" style={{ width: '58px', height: '58px', borderRadius: '50%', objectFit: 'cover', border: '2px solid #04ab0c' }} />
+                  <div>
+                    <div style={{ fontWeight: '800', fontSize: '16px', letterSpacing: '0.5px', color: '#04ab0c' }}>OBA SUPPLIES &amp; SERVICES</div>
+                    <div style={{ fontSize: '11px', color: '#555', marginTop: '2px' }}>📧 obasuppliesandservices@gmail.com</div>
+                    <div style={{ fontSize: '11px', color: '#555' }}>📞 (555) 123-4567</div>
+                  </div>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontSize: '13px', fontWeight: '700', color: '#333' }}>Ticket # {ticketNumber}</div>
+                  <div style={{ fontSize: '11px', color: '#666', marginTop: '4px' }}>{ticketDateTime.toLocaleDateString()} {ticketDateTime.toLocaleTimeString()}</div>
+                </div>
+              </div>
+
+              {/* Body */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 1fr', gap: '24px' }}>
+                <div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '80px 1fr', rowGap: '10px', fontSize: '13px' }}>
+                    <div style={{ color: '#666', fontWeight: '600' }}>Customer</div>
+                    <div style={{ color: '#111' }}>{customerNames} <strong>{companyNames}</strong></div>
+
+                    <div style={{ color: '#666', fontWeight: '600' }}>Order</div>
+                    <div style={{ color: '#111' }}>{orderTypes} <strong>{companyNames}</strong></div>
+
+                    <div style={{ color: '#666', fontWeight: '600' }}>Reference</div>
+                    <div style={{ color: '#111' }}>TRIP-{ticketNumber}</div>
+
+                    <div style={{ color: '#666', fontWeight: '600' }}>Street/Loc</div>
+                    <div style={{ color: '#111' }}>{addresses}</div>
+                  </div>
+
+                  <div style={{ marginTop: '14px', borderTop: '1px solid #ddd', paddingTop: '10px', display: 'grid', gridTemplateColumns: '80px 1fr', rowGap: '10px', fontSize: '13px' }}>
+                    <div style={{ color: '#666', fontWeight: '600' }}>Item</div>
+                    <div style={{ color: '#111' }}>{orderTypes}</div>
+
+                    <div style={{ color: '#666', fontWeight: '600' }}>Source</div>
+                    <div style={{ color: '#111' }}>OBA Warehouse</div>
+                  </div>
+                </div>
+
+                <div style={{ border: '1px solid #ccc', borderRadius: '6px', padding: '14px' }}>
+                  <div style={{ fontSize: '11px', color: '#666', marginBottom: '2px' }}>Truck</div>
+                  <div style={{ fontWeight: '700', fontSize: '14px', marginBottom: '10px' }}>
+                    🚚 {ticketTrip.truckNumber || 'N/A'} <span style={{ fontWeight: 'normal', color: '#666', fontSize: '11px' }}>({ticketTrip.truckType || 'Standard'})</span>
+                  </div>
+
+                  <div style={{ fontSize: '11px', color: '#666', marginBottom: '2px' }}>Driver</div>
+                  <div style={{ fontWeight: '700', fontSize: '14px', marginBottom: '10px' }}>👨‍💼 {ticketTrip.driver || 'Not assigned'}</div>
+
+                  <div style={{ fontSize: '11px', color: '#666', marginBottom: '2px' }}>Pahinante</div>
+                  <div style={{ fontWeight: '700', fontSize: '14px' }}>👨‍🔧 {ticketTrip.pahintate || 'Not assigned'}</div>
+
+                  <div style={{ borderTop: '1px solid #ddd', marginTop: '10px', paddingTop: '10px' }}>
+                    <div style={{ fontSize: '11px', color: '#666' }}>Total</div>
+                    <div style={{ fontWeight: '700', fontSize: '14px' }}>{loadCount} Job Order{loadCount === 1 ? '' : 's'} • {manpowerCount} Manpower</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Decorative ticket barcode */}
+              <div style={{ marginTop: '20px' }}>
+                <div style={{ fontSize: '10px', color: '#999', marginBottom: '4px' }}>Ticket</div>
+                <div style={{ height: '32px', backgroundImage: 'repeating-linear-gradient(90deg, #222, #222 2px, transparent 2px, transparent 4px, #222 4px, #222 7px, transparent 7px, transparent 9px)' }}></div>
+              </div>
+
+              {/* Signature lines */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px', marginTop: '24px' }}>
+                <div>
+                  <div style={{ borderBottom: '1px solid #333', height: '28px' }}></div>
+                  <div style={{ fontSize: '11px', color: '#666', marginTop: '4px' }}>Driver Signature</div>
+                </div>
+                <div>
+                  <div style={{ borderBottom: '1px solid #333', height: '28px' }}></div>
+                  <div style={{ fontSize: '11px', color: '#666', marginTop: '4px' }}>Received By</div>
+                </div>
+              </div>
+
+              {/* Actions (hidden when printing) */}
+              <div className="no-print" style={{ display: 'flex', gap: '12px', marginTop: '26px' }}>
+                <button type="button" onClick={() => window.print()} style={{ flex: 1, padding: '12px', backgroundColor: '#04ab0c', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '15px', fontWeight: '700' }}>🖨️ Print Ticket</button>
+                <button type="button" onClick={() => setTicketTrip(null)} style={{ flex: 1, padding: '12px', backgroundColor: '#f0f0f0', color: '#333', border: '1px solid #ddd', borderRadius: '6px', cursor: 'pointer', fontSize: '15px', fontWeight: '700' }}>Close</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
     </div>
     </>

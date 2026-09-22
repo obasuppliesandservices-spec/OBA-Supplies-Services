@@ -7,32 +7,6 @@ import Orderspage from './Orderspage';
 import Cart from './Cart';
 import toast from 'react-hot-toast';
 
-// Service Configuration - Fixed manpower and contract lengths per service
-const SERVICE_CONFIG = {
-  'Insulation and Cladding': { manpower: 4, contractLength: '1 Month' },
-  'Cold Box Insulation and Cladding': { manpower: 5, contractLength: '2 Weeks' },
-  'Equipment Foundation Coating': { manpower: 3, contractLength: '1 Week' },
-  'Welding and Fabrication': { manpower: 6, contractLength: '3 Months' },
-  'Cooler Tube Replacement': { manpower: 4, contractLength: '1 Week' },
-  'Vacuum Insulated Piping Installation (VIP)': { manpower: 5, contractLength: '1 Month' },
-  'Liquid Nitrogen Piping': { manpower: 5, contractLength: '2 Weeks' },
-  'Crack Detection Test': { manpower: 2, contractLength: '1 Week' },
-  'Repainting': { manpower: 3, contractLength: '1 Week' },
-  'Professional Mechanical Engineer Consultancy': { manpower: 1, contractLength: '3 Months' }
-};
-
-const formatDateInput = (date) => {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-};
-
-const parseDateInput = (value) => {
-  const [year, month, day] = value.split('-').map(Number);
-  return new Date(year, month - 1, day);
-};
-
 export default function Homepage({ onLoginClick, onLogout, isLoggedIn, user, cart, onAddToCart, onViewCart, onRemoveFromCart, showCart, onContinueShopping, onClearCart, onCheckout, onSubmitOrder, notifications, setNotifications, onAddFeedback }) {
   const [currentPage, setCurrentPage] = useStickyState('home', 'homepage_currentPage');
   const [showBlankCart, setShowBlankCart] = useState(false);
@@ -46,111 +20,39 @@ export default function Homepage({ onLoginClick, onLogout, isLoggedIn, user, car
   const [isLoadingPlaceOrder, setIsLoadingPlaceOrder] = useState(false);
   const [customerInfo, setCustomerInfo] = useState({
     name: user?.name || '',
-    address: '',
-    contactNumber: '',
-    company: '',
+    address: user?.address || '',
+    contactNumber: user?.contactNumber || '',
+    company: user?.company || '',
     businessLicense: null,
     companyId: null
   });
-  
+
+  // Keep customer info in sync with the logged-in account so Order Details
+  // is pre-filled automatically from the details entered at account creation.
+  useEffect(() => {
+    setCustomerInfo(prev => ({
+      ...prev,
+      name: prev.name || user?.name || '',
+      address: prev.address || user?.address || '',
+      contactNumber: prev.contactNumber || user?.contactNumber || '',
+      company: prev.company || user?.company || ''
+    }));
+  }, [user]);
+
   const isUserLoggedIn = isLoggedIn || !!onLogout;
 
-  // Initialize order details when showing the form
+  // Initialize order details when showing the form. Scheduling (contract dates,
+  // manpower, contract length) is now set by Logistics during delivery processing.
   const handleProceedToCheckout = () => {
     setIsLoadingCheckout(true);
-    
+
     // Show loading for at least 3 seconds
     setTimeout(() => {
-      const details = (cart || []).map(item => {
-        const serviceName = item.name || item.title;
-        const config = SERVICE_CONFIG[serviceName] || { manpower: 1, contractLength: '1 Month' };
-        
-        const startDate = new Date();
-        const endDate = new Date(startDate);
-        
-        // Calculate end date based on contract length
-        if (config.contractLength === '1 Week') {
-          endDate.setDate(endDate.getDate() + 7);
-        } else if (config.contractLength === '2 Weeks') {
-          endDate.setDate(endDate.getDate() + 14);
-        } else if (config.contractLength === '1 Month') {
-          endDate.setMonth(endDate.getMonth() + 1);
-        } else if (config.contractLength === '3 Months') {
-          endDate.setMonth(endDate.getMonth() + 3);
-        } else if (config.contractLength === '6 Months') {
-          endDate.setMonth(endDate.getMonth() + 6);
-        } else if (config.contractLength === '1 Year') {
-          endDate.setFullYear(endDate.getFullYear() + 1);
-        }
-        
-        return {
-          ...item,
-          startDate: formatDateInput(startDate),
-          endDate: formatDateInput(endDate),
-          manpower: config.manpower,
-          contractLength: config.contractLength
-        };
-      });
+      const details = (cart || []).map(item => ({ ...item }));
       setOrderDetails(details);
       setShowOrderDetails(true);
       setIsLoadingCheckout(false);
     }, 3000);
-  };
-
-  const handleUpdateOrderDetail = (index, field, value) => {
-    const updatedDetails = [...orderDetails];
-    updatedDetails[index][field] = value;
-
-    // If contractLength is changed, automatically calculate the end date
-    if (field === 'contractLength') {
-      const startDate = parseDateInput(updatedDetails[index].startDate);
-      let endDate = new Date(startDate);
-
-      // Parse contract length and add appropriate days
-      const lengthStr = value;
-      if (lengthStr === '1 Week') {
-        endDate.setDate(endDate.getDate() + 7);
-      } else if (lengthStr === '2 Weeks') {
-        endDate.setDate(endDate.getDate() + 14);
-      } else if (lengthStr === '1 Month') {
-        endDate.setMonth(endDate.getMonth() + 1);
-      } else if (lengthStr === '3 Months') {
-        endDate.setMonth(endDate.getMonth() + 3);
-      } else if (lengthStr === '6 Months') {
-        endDate.setMonth(endDate.getMonth() + 6);
-      } else if (lengthStr === '1 Year') {
-        endDate.setFullYear(endDate.getFullYear() + 1);
-      }
-
-      // Update endDate in the order detail
-      updatedDetails[index].endDate = formatDateInput(endDate);
-    }
-
-    // If startDate is changed, recalculate endDate based on current contractLength
-    if (field === 'startDate') {
-      const startDate = parseDateInput(value);
-      let endDate = new Date(startDate);
-      const contractLength = updatedDetails[index].contractLength;
-
-      // Recalculate based on existing contract length
-      if (contractLength === '1 Week') {
-        endDate.setDate(endDate.getDate() + 7);
-      } else if (contractLength === '2 Weeks') {
-        endDate.setDate(endDate.getDate() + 14);
-      } else if (contractLength === '1 Month') {
-        endDate.setMonth(endDate.getMonth() + 1);
-      } else if (contractLength === '3 Months') {
-        endDate.setMonth(endDate.getMonth() + 3);
-      } else if (contractLength === '6 Months') {
-        endDate.setMonth(endDate.getMonth() + 6);
-      } else if (contractLength === '1 Year') {
-        endDate.setFullYear(endDate.getFullYear() + 1);
-      }
-
-      updatedDetails[index].endDate = formatDateInput(endDate);
-    }
-
-    setOrderDetails(updatedDetails);
   };
 
   const handleUpdateCustomerInfo = (field, value) => {
@@ -216,18 +118,6 @@ export default function Homepage({ onLoginClick, onLogout, isLoggedIn, user, car
     // Validate order items
     if (!orderDetails || orderDetails.length === 0) {
       errors.push('At least one service item is required');
-    } else {
-      orderDetails.forEach((item, index) => {
-        if (!item.startDate) {
-          errors.push(`Service ₱ {index + 1}: Start date is required`);
-        }
-        if (!item.endDate) {
-          errors.push(`Service ₱ {index + 1}: End date is required`);
-        }
-        if (!item.manpower || item.manpower < 1) {
-          errors.push(`Service ₱ {index + 1}: Manpower must be at least 1`);
-        }
-      });
     }
 
     // If there are errors, show them to the user
@@ -254,12 +144,12 @@ export default function Homepage({ onLoginClick, onLogout, isLoggedIn, user, car
       setShowOrderDetails(false);
       setShowBlankCart(false);
       toast.success('Order placed successfully! Your order is being processed.');
-      // Reset customer info
+      // Reset customer info (keep account details pre-filled for the next order)
       setCustomerInfo({
         name: user?.name || '',
-        address: '',
-        contactNumber: '',
-        company: '',
+        address: user?.address || '',
+        contactNumber: user?.contactNumber || '',
+        company: user?.company || '',
         businessLicense: null,
         companyId: null
       });
@@ -476,113 +366,29 @@ export default function Homepage({ onLoginClick, onLogout, isLoggedIn, user, car
                       borderRadius: '8px',
                       padding: '24px',
                       border: '1px solid #e0e0e0',
-                      boxShadow: '0 1px 3px rgba(0, 0, 0, 0.08)'
+                      boxShadow: '0 1px 3px rgba(0, 0, 0, 0.08)',
+                      display: 'flex',
+                      gap: '20px',
+                      alignItems: 'center'
                     }}
                   >
-                    <div style={{ marginBottom: '20px', paddingBottom: '16px', borderBottom: '2px solid #f0f0f0' }}>
-                      <h3 style={{ margin: '0 0 8px 0', fontSize: '18px', fontWeight: '600', color: '#333' }}>
+                    {item.img && (
+                      <img
+                        src={item.img}
+                        alt={item.name || item.title}
+                        style={{ width: '96px', height: '96px', objectFit: 'cover', borderRadius: '8px', border: '1px solid #eee', flexShrink: 0 }}
+                      />
+                    )}
+                    <div>
+                      <h3 style={{ margin: '0 0 4px 0', fontSize: '18px', fontWeight: '600', color: '#333' }}>
                         {item.name || item.title}
                       </h3>
-                      <p style={{ margin: '0', color: '#666', fontSize: '14px' }}>
-                        Price: ₱ {item.price ? item.price.toFixed(2) : '0.00'}
+                      <p style={{ margin: '0 0 6px 0', color: '#888', fontSize: '13px' }}>
+                        {item.description || 'Product'}
                       </p>
-                    </div>
-
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-                      <div>
-                        <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: '600', color: '#333' }}>
-                          Start Date of Contract
-                        </label>
-                        <input
-                          type="date"
-                          value={item.startDate}
-                          onChange={(e) => handleUpdateOrderDetail(index, 'startDate', e.target.value)}
-                          style={{
-                            width: '100%',
-                            padding: '10px',
-                            borderRadius: '6px',
-                            border: '1px solid #ddd',
-                            fontSize: '14px',
-                            boxSizing: 'border-box'
-                          }}
-                        />
-                      </div>
-
-                      <div>
-                        <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: '600', color: '#333' }}>
-                          End Date of Contract (Auto-calculated)
-                        </label>
-                        <input
-                          type="date"
-                          value={item.endDate}
-                          disabled
-                          style={{
-                            width: '100%',
-                            padding: '10px',
-                            borderRadius: '6px',
-                            border: '1px solid #ddd',
-                            fontSize: '14px',
-                            boxSizing: 'border-box',
-                            backgroundColor: '#f5f5f5',
-                            color: '#666',
-                            cursor: 'not-allowed'
-                          }}
-                        />
-                        <small style={{ color: '#999', marginTop: '4px', display: 'block' }}>
-                          Updates automatically based on Start Date and Contract Length
-                        </small>
-                      </div>
-
-                      <div>
-                        <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: '600', color: '#333' }}>
-                          Number of Manpower Needed
-                        </label>
-                        <input
-                          type="number"
-                          value={item.manpower}
-                          onChange={(e) => handleUpdateOrderDetail(index, 'manpower', Math.max(1, parseInt(e.target.value) || 1))}
-                          min="1"
-                          style={{
-                            width: '100%',
-                            padding: '10px',
-                            borderRadius: '6px',
-                            border: '1px solid #ddd',
-                            fontSize: '14px',
-                            boxSizing: 'border-box'
-                          }}
-                        />
-                        <small style={{ color: '#04ab0c', marginTop: '4px', display: 'block', fontWeight: '600' }}>
-                         Required Manpower: {SERVICE_CONFIG[item.name || item.title]?.manpower || 1} personnel required for this service
-                        </small>
-                      </div>
-
-                      <div>
-                        <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: '600', color: '#333' }}>
-                          Contract Length
-                        </label>
-                        <select
-                          value={item.contractLength}
-                          onChange={(e) => handleUpdateOrderDetail(index, 'contractLength', e.target.value)}
-                          style={{
-                            width: '100%',
-                            padding: '10px',
-                            borderRadius: '6px',
-                            border: '1px solid #ddd',
-                            fontSize: '14px',
-                            boxSizing: 'border-box'
-                          }}
-                        >
-                          <option value="1 Week">1 Week</option>
-                          <option value="2 Weeks">2 Weeks</option>
-                          <option value="1 Month">1 Month</option>
-                          <option value="3 Months">3 Months</option>
-                          <option value="6 Months">6 Months</option>
-                          <option value="1 Year">1 Year</option>
-                        </select>
-                        <small style={{ color: '#04ab0c', marginTop: '4px', display: 'block', fontWeight: '600' }}>
-                          Recommended: {SERVICE_CONFIG[item.name || item.title]?.contractLength || '1 Month'} contract for optimal service delivery
-                        </small>
-                      </div>
+                      <p style={{ margin: '0', color: '#666', fontSize: '14px' }}>
+                        Price: ₱ {item.price ? item.price.toFixed(2) : '0.00'}{item.quantity ? ` × ${item.quantity}` : ''}
+                      </p>
                     </div>
                   </div>
                 ))}

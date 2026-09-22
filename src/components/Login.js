@@ -11,7 +11,8 @@ export default function Login({ onLogin, onOpenRfidKiosk }) {
   const [isSignUp, setIsSignUp] = useState(false);
   const [company, setCompany] = useState('');
   const [name, setName] = useState('');
-  const [surname, setSurname] = useState('');
+  const [address, setAddress] = useState('');
+  const [contactNumber, setContactNumber] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -28,7 +29,8 @@ export default function Login({ onLogin, onOpenRfidKiosk }) {
     setVerificationCode('');
     setCompany('');
     setName('');
-    setSurname('');
+    setAddress('');
+    setContactNumber('');
     setEmail('');
     setPassword('');
     setConfirmPassword('');
@@ -82,13 +84,14 @@ export default function Login({ onLogin, onOpenRfidKiosk }) {
 
       try {
         const credential = await createUserWithEmailAndPassword(auth, email, password);
-        const fullName = `${name} ${surname}`.trim();
+        const fullName = name.trim();
         await updateProfile(credential.user, { displayName: fullName });
         await set(ref(database, `customers/${credential.user.uid}`), {
           uid: credential.user.uid,
           company,
-          name,
-          surname,
+          name: fullName,
+          address,
+          contactNumber,
           email,
           status: 'Active',
           createdDate: new Date().toISOString().split('T')[0]
@@ -100,8 +103,9 @@ export default function Login({ onLogin, onOpenRfidKiosk }) {
             const customerRef = push(ref(database, 'customers'));
             await set(customerRef, {
               company,
-              name,
-              surname,
+              name: name.trim(),
+              address,
+              contactNumber,
               email,
               password,
               status: 'Active',
@@ -157,7 +161,7 @@ export default function Login({ onLogin, onOpenRfidKiosk }) {
         if (foundCustomer && foundCustomer.password) {
           if (foundCustomer.password === password) {
             if (foundCustomer.status === 'Active') {
-              onLogin({ email: foundCustomer.email, role: 'customer', name: foundCustomer.name });
+              onLogin({ email: foundCustomer.email, role: 'customer', name: foundCustomer.name, company: foundCustomer.company, contactNumber: foundCustomer.contactNumber, address: foundCustomer.address });
               return;
             } else {
               setError('Your account has been deactivated. Contact Admin.');
@@ -177,7 +181,21 @@ export default function Login({ onLogin, onOpenRfidKiosk }) {
     try {
       const credential = await signInWithEmailAndPassword(auth, email, password);
       // Ensure firebase authenticated users sign in as customers based on requested behavior
-      onLogin({ email, role: 'customer', name: credential.user.displayName });
+      let company = '';
+      let contactNumber = '';
+      let address = '';
+      try {
+        const customerSnap = await get(ref(database, `customers/${credential.user.uid}`));
+        if (customerSnap.exists()) {
+          const customerData = customerSnap.val();
+          company = customerData.company || '';
+          contactNumber = customerData.contactNumber || '';
+          address = customerData.address || '';
+        }
+      } catch (lookupError) {
+        console.error('Unable to load customer profile details:', lookupError);
+      }
+      onLogin({ email, role: 'customer', name: credential.user.displayName, company, contactNumber, address });
     } catch (err) {
       setError('Invalid email or password.');
     }
@@ -314,23 +332,34 @@ export default function Login({ onLogin, onOpenRfidKiosk }) {
                 </div>
 
                 <div className="form-group">
-                  <label>Name: </label>
+                  <label>Full Name: </label>
                   <input
                     type="text"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
-                    placeholder="Enter your name"
+                    placeholder="Enter your full name"
                     required
                   />
                 </div>
 
                 <div className="form-group">
-                  <label>Surname: </label>
+                  <label>Complete Address: </label>
                   <input
                     type="text"
-                    value={surname}
-                    onChange={(e) => setSurname(e.target.value)}
-                    placeholder="Enter your surname"
+                    value={address}
+                    onChange={(e) => setAddress(e.target.value)}
+                    placeholder="Enter your complete address"
+                    required
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label>Contact No.: </label>
+                  <input
+                    type="tel"
+                    value={contactNumber}
+                    onChange={(e) => setContactNumber(e.target.value)}
+                    placeholder="Enter your contact number"
                     required
                   />
                 </div>

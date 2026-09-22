@@ -281,43 +281,124 @@ export default function ReportsAnalytics({
   const chartMaxValue = reportDate ? 25 : 200;
   const chartYTicks = reportDate ? [0, 5, 10, 15, 20, 25] : [0, 50, 100, 150, 200];
 
-  const handleGenerateReport = () => {
-    const completedDeliveries = filteredDoneDeliveries;
+  const handleGenerateReport = async () => {
     const endedJobOrders = doneDeliveries.filter(delivery => delivery.status === 'completion' && isDateInReport(delivery));
-    const totalDeliveryItems = [...completedDeliveries, ...filteredUnsuccessfulDeliveries];
-    const getItemType = (item) => item.jobType || item.type || item.serviceType || 'Delivery';
-    const escapeCell = (value) => String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    const maxItems = Math.max(totalDeliveryItems.length, completedDeliveries.length, filteredUnsuccessfulDeliveries.length, endedJobOrders.length, 1);
-    const itemRows = Array.from({ length: maxItems }, (_, index) => {
-      const getCells = (items) => items[index]
-        ? `<td>${index + 1}. ${escapeCell(getItemType(items[index]))}</td>`
-        : '<td></td>';
-      return `<tr>${getCells(totalDeliveryItems)}${getCells(completedDeliveries)}${getCells(filteredUnsuccessfulDeliveries)}${getCells(endedJobOrders)}</tr>`;
-    }).join('');
-    const reportDate = new Date().toLocaleDateString();
-    const report = `
-      <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
-        <head><meta charset="UTF-8" /></head>
-        <body>
-          <table border="1" cellspacing="0" cellpadding="2">
-            <tr><th colspan="4">OBA Supplies&amp;Services Overview Report</th></tr>
-            <tr><td>Report Date</td><td colspan="3">${escapeCell(reportDate)}</td></tr>
-            <tr><td>Filter Window</td><td colspan="3">${escapeCell(dateFilter === 'All' ? 'All Time Overview' : dateFilter === '30Days' ? 'Last 30 Days' : 'Last 7 Days')}</td></tr>
-            <tr><th>Total Deliveries:</th><th>Delivery Completed:</th><th>Unsuccessful Deliveries:</th><th>Ended Job Orders:</th></tr>
-            ${itemRows}
-          </table>
-        </body>
-      </html>`;
-    const blob = new Blob([report], { type: 'application/vnd.ms-excel' });
-    const downloadUrl = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = downloadUrl;
-    link.download = `oba-overview-report-${new Date().toISOString().slice(0, 10)}.xls`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(downloadUrl);
-    toast.success('Excel report generated successfully.');
+    const filterLabel = dateFilter === 'All' ? 'All Time Overview' : dateFilter === '30Days' ? 'Last 30 Days' : 'Last 7 Days';
+    const generatedOn = new Date().toLocaleString();
+
+    const [{ jsPDF }, { autoTable }] = await Promise.all([
+      import('jspdf'),
+      import('jspdf-autotable')
+    ]);
+    const doc = new jsPDF();
+    const pageWidth = doc.internal.pageSize.getWidth();
+
+    // Logo (loaded as a data URL so it can be embedded in the PDF)
+    let logoDataUrl = null;
+    try {
+      logoDataUrl = await fetch('/logo.png')
+        .then(res => res.blob())
+        .then(blob => new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result);
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        }));
+    } catch (logoError) {
+      console.error('Unable to load logo for PDF report:', logoError);
+    }
+
+    // Header
+    const textStartX = logoDataUrl ? 36 : 14;
+    if (logoDataUrl) {
+      doc.addImage(logoDataUrl, 'JPEG', 14, 10, 18, 18);
+    }
+    doc.setFontSize(18);
+    doc.setTextColor(4, 171, 12);
+    doc.text('OBA Supplies & Services', textStartX, 20);
+    doc.setFontSize(13);
+    doc.setTextColor(40, 40, 40);
+    doc.text('Logistics Analytics & Deliveries Summary Report', textStartX, 27);
+    doc.setFontSize(10);
+    doc.setTextColor(110, 110, 110);
+    doc.text(`Generated: ${generatedOn}`, 14, 34);
+    doc.text(`Filter Window: ${filterLabel}${reportDate ? ` (Selected Date: ${reportDate})` : ''}`, 14, 39);
+
+    // KPI Summary
+    autoTable(doc, {
+      startY: 45,
+      head: [['Summary Metric', 'Value']],
+      body: [
+        ['Total Shipments', String(totalShipments)],
+        ['Deliveries Handled', `${totalDeliveries} (${successRate}% success rate)`],
+        ['Unsuccessful Deliveries', String(unsuccessfulCount)],
+        ['Ended Job Orders', String(endedJobOrders.length)],
+        ['Length of Travel', `${totalTravelKm} km total • avg ${avgTravelKm} km per shipment`],
+        ['Client Locations', `${locationBreakdown.length} unique destination${locationBreakdown.length === 1 ? '' : 's'}`]
+      ],
+      theme: 'grid',
+      headStyles: { fillColor: [4, 171, 12] },
+      styles: { fontSize: 10 }
+    });
+
+    // Client Location Distribution
+    let nextY = doc.lastAutoTable.finalY + 10;
+    doc.setFontSize(12);
+    doc.setTextColor(40, 40, 40);
+    doc.text('Client Location Distribution', 14, nextY);
+    autoTable(doc, {
+      startY: nextY + 4,
+      head: [['Location', 'Region', 'Shipments', 'Total Distance']],
+      body: locationBreakdown.length > 0
+        ? locationBreakdown.map(loc => [loc.name, loc.region, String(loc.count), `${loc.totalKm} km`])
+        : [['No location data available for this filter.', '-', '-', '-']],
+      theme: 'striped',
+      headStyles: { fillColor: [156, 39, 176] },
+      styles: { fontSize: 9 }
+    });
+
+    // Monthly Trends
+    nextY = doc.lastAutoTable.finalY + 10;
+    doc.setFontSize(12);
+    doc.setTextColor(40, 40, 40);
+    doc.text('Monthly Shipment & Delivery Trends', 14, nextY);
+    autoTable(doc, {
+      startY: nextY + 4,
+      head: [['Month', 'Shipments', 'Deliveries', 'Completed']],
+      body: monthData.map(m => [m.label, String(m.shipments), String(m.deliveries), String(m.completed)]),
+      theme: 'striped',
+      headStyles: { fillColor: [25, 118, 210] },
+      styles: { fontSize: 9 }
+    });
+
+    // Shipment Travel Length & Delivery Log
+    nextY = doc.lastAutoTable.finalY + 10;
+    doc.setFontSize(12);
+    doc.setTextColor(40, 40, 40);
+    doc.text('Shipment Travel Length & Delivery Log', 14, nextY);
+    autoTable(doc, {
+      startY: nextY + 4,
+      head: [['Customer', 'Company', 'Destination Hub', 'Distance', 'Travel Time', 'Vehicle', 'Status']],
+      body: travelReports.length > 0
+        ? travelReports.map(r => [r.customerName, r.company, r.locationName, `${r.distance} km`, r.duration, r.truckNumber, r.status])
+        : [['No shipment reports available for this filter.', '', '', '', '', '', '']],
+      theme: 'striped',
+      headStyles: { fillColor: [237, 108, 2] },
+      styles: { fontSize: 8 },
+      columnStyles: { 0: { cellWidth: 28 }, 1: { cellWidth: 26 }, 2: { cellWidth: 26 } }
+    });
+
+    // Footer page numbers
+    const pageCount = doc.internal.getNumberOfPages();
+    for (let i = 1; i <= pageCount; i++) {
+      doc.setPage(i);
+      doc.setFontSize(8);
+      doc.setTextColor(150, 150, 150);
+      doc.text(`Page ${i} of ${pageCount}`, pageWidth - 30, doc.internal.pageSize.getHeight() - 10);
+    }
+
+    doc.save(`oba-logistics-analytics-report-${new Date().toISOString().slice(0, 10)}.pdf`);
+    toast.success('PDF report generated and saved successfully.');
   };
 
   const mainContent = (
@@ -342,7 +423,7 @@ export default function ReportsAnalytics({
           onClick={handleGenerateReport}
           style={{ padding: '10px 20px', backgroundColor: '#04ab0c', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '8px' }}
         >
-          📄 Generate Report
+          📄 Generate Report (PDF)
         </button>
       </div>
 
